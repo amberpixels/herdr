@@ -761,6 +761,9 @@ pub struct UiConfig {
     pub sidebar_min_width: u16,
     /// Maximum sidebar width (columns) when expanded. Default: 36.
     pub sidebar_max_width: u16,
+    /// Render each workspace on a single line (`name • branch`) instead of the
+    /// name with the branch on a second line. Default: false.
+    pub sidebar_single_line: bool,
     /// Terminal width at or below which Herdr uses the mobile single-column layout. Default: 64.
     pub mobile_width_threshold: u16,
     /// Capture mouse input for Herdr's mouse UI. Default: true.
@@ -779,10 +782,18 @@ pub struct UiConfig {
     pub pane_borders: bool,
     /// Keep split panes visually separated instead of sharing divider borders. Default: true.
     pub pane_gaps: bool,
+    /// Keep a blank row between workspaces in the spaces list. Worktree children
+    /// of one project stay gapless regardless. Default: true.
+    pub space_panel_row_gap: bool,
     /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
     pub show_agent_labels_on_pane_borders: bool,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
+    /// Keep a blank row between agents in the agents list. Default: true.
+    pub agent_panel_row_gap: bool,
+    /// Show 1-based position numbers (1-9) in the agents list, matching the
+    /// `focus_agent` indexed shortcuts. Default: false.
+    pub agent_panel_numbers: bool,
     /// Accent color for highlights, borders, and navigation UI.
     /// Accepts hex (#89b4fa), named colors (cyan, blue), or RGB (rgb(137,180,250)).
     pub accent: String,
@@ -961,6 +972,7 @@ impl Default for UiConfig {
             sidebar_width: 26,
             sidebar_min_width: 18,
             sidebar_max_width: 36,
+            sidebar_single_line: false,
             mobile_width_threshold: DEFAULT_MOBILE_WIDTH_THRESHOLD,
             mouse_capture: true,
             right_click_passthrough_modifier: RightClickPassthroughModifierConfig::default(),
@@ -970,8 +982,11 @@ impl Default for UiConfig {
             prompt_new_tab_name: true,
             pane_borders: true,
             pane_gaps: true,
+            space_panel_row_gap: true,
             show_agent_labels_on_pane_borders: false,
             agent_panel_sort: AgentPanelSortConfig::Spaces,
+            agent_panel_row_gap: true,
+            agent_panel_numbers: false,
             accent: "cyan".into(),
             toast: ToastConfig::default(),
             sound: SoundConfig::default(),
@@ -1174,6 +1189,28 @@ agent_panel_scope = "current"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.ui.agent_panel_sort, AgentPanelSortConfig::Spaces);
+    }
+
+    #[test]
+    fn sidebar_layout_options_default_off_and_parse() {
+        let default_config = Config::default();
+        assert!(!default_config.ui.sidebar_single_line);
+        assert!(default_config.ui.space_panel_row_gap);
+        assert!(default_config.ui.agent_panel_row_gap);
+        assert!(!default_config.ui.agent_panel_numbers);
+
+        let toml = r#"
+[ui]
+sidebar_single_line = true
+space_panel_row_gap = false
+agent_panel_row_gap = false
+agent_panel_numbers = true
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.ui.sidebar_single_line);
+        assert!(!config.ui.space_panel_row_gap);
+        assert!(!config.ui.agent_panel_row_gap);
+        assert!(config.ui.agent_panel_numbers);
     }
 
     #[test]

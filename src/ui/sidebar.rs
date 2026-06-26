@@ -177,6 +177,41 @@ fn truncate_text(text: &str, max_width: usize) -> String {
     format!("{prefix}…")
 }
 
+/// Split a character `budget` between a workspace name and its branch for the
+/// single-line layout. Returns the number of characters each side keeps.
+///
+/// Both sides keep their full length when they fit. Otherwise the name is
+/// favored (~60% of the budget), then the split is rebalanced: a side shorter
+/// than its share donates the surplus to the other. Only a side still longer
+/// than its allotment is truncated, so short branches (`main`, `dev`, …) stay
+/// whole and the name is shortened instead.
+fn split_name_branch_budget(name_len: usize, branch_len: usize, budget: usize) -> (usize, usize) {
+    // Fraction of the shared budget the name is favored with before rebalancing.
+    const NAME_BUDGET_SHARE: f64 = 0.6;
+    // Smallest number of characters to leave for a side that must be truncated.
+    const MIN_SIDE_WIDTH: usize = 3;
+
+    if name_len + branch_len <= budget {
+        return (name_len, branch_len);
+    }
+    let min_each = MIN_SIDE_WIDTH.min(budget);
+    let mut name_keep = ((budget as f64 * NAME_BUDGET_SHARE) as usize)
+        .max(min_each)
+        .min(budget);
+    let mut branch_keep = budget.saturating_sub(name_keep);
+    if branch_len < branch_keep {
+        let surplus = branch_keep - branch_len;
+        branch_keep = branch_len;
+        name_keep = (name_keep + surplus).min(budget.saturating_sub(branch_keep));
+    }
+    if name_len < name_keep {
+        let surplus = name_keep - name_len;
+        name_keep = name_len;
+        branch_keep = (branch_keep + surplus).min(budget.saturating_sub(name_keep));
+    }
+    (name_keep, branch_keep)
+}
+
 fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -> String {
     let Some(tab_label) = entry.primary_tab_label.as_deref() else {
         return truncate_text(&entry.primary_label, max_width);
@@ -295,6 +330,12 @@ fn next_entry_is_indented_workspace(entries: &[WorkspaceListEntry], idx: usize) 
         entries.get(idx.saturating_add(1)),
         Some(WorkspaceListEntry::Workspace { indented: true, .. })
     )
+}
+
+/// Natural vertical gap below a workspace row: one blank line, except between
+/// consecutive worktree children of the same project, which stay gapless.
+fn workspace_row_gap(entries: &[WorkspaceListEntry], entry_idx: usize, indented: bool) -> u16 {
+    u16::from(!(indented && next_entry_is_indented_workspace(entries, entry_idx)))
 }
 
 pub(crate) fn normalized_workspace_scroll(app: &AppState, area: Rect, requested: usize) -> usize {
@@ -444,14 +485,18 @@ fn workspace_list_visible_count(app: &AppState, area: Rect, scroll: usize) -> us
                 let Some(ws) = app.workspaces.get(*ws_idx) else {
                     continue;
                 };
-                let row_height = if *indented {
+                // Worktree children and single-line mode are always one row;
+                // otherwise use the workspace's natural (branch-based) height.
+                let row_height = if *indented || app.sidebar_single_line {
                     1
                 } else {
                     workspace_row_height(ws)
                 };
-                let gap = u16::from(
-                    !(*indented && next_entry_is_indented_workspace(&entries, entry_idx)),
-                );
+                let gap = if app.space_panel_row_gap {
+                    workspace_row_gap(&entries, entry_idx, *indented)
+                } else {
+                    0
+                };
                 row_height.saturating_add(gap)
             }
         };
@@ -506,12 +551,18 @@ pub(crate) fn agent_panel_body_rect(area: Rect, has_scrollbar: bool) -> Rect {
     Rect::new(area.x, body_y, body_width, body_height)
 }
 
-fn agent_panel_visible_count(area: Rect) -> usize {
+fn agent_panel_visible_count(area: Rect, gap_enabled: bool) -> usize {
     let body = agent_panel_body_rect(area, false);
     if body.width == 0 || body.height < 2 {
         return 0;
     }
 
+    if !gap_enabled {
+        // Each agent occupies 2 rows (name + status) with no gap between cards.
+        return (body.height / 2) as usize;
+    }
+
+    // Default layout: 2 rows per agent plus a 1-row gap between cards.
     let mut used_rows = 0u16;
     let mut visible = 0usize;
     while used_rows.saturating_add(2) <= body.height {
@@ -525,7 +576,7 @@ fn agent_panel_visible_count(area: Rect) -> usize {
 }
 
 pub(crate) fn agent_panel_scroll_metrics(app: &AppState, area: Rect) -> crate::pane::ScrollMetrics {
-    let viewport_rows = agent_panel_visible_count(area);
+    let viewport_rows = agent_panel_visible_count(area, app.agent_panel_row_gap);
     let total_rows = agent_panel_entries(app).len();
     let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
     let offset_from_bottom = total_rows
@@ -578,14 +629,18 @@ pub(crate) fn compute_workspace_list_areas(
                 let Some(ws) = app.workspaces.get(*ws_idx) else {
                     continue;
                 };
-                let row_height = if *indented {
+                // Worktree children and single-line mode are always one row;
+                // otherwise use the workspace's natural (branch-based) height.
+                let row_height = if *indented || app.sidebar_single_line {
                     1
                 } else {
                     workspace_row_height(ws)
                 };
-                let gap = u16::from(
-                    !(*indented && next_entry_is_indented_workspace(&entries, entry_idx)),
-                );
+                let gap = if app.space_panel_row_gap {
+                    workspace_row_gap(&entries, entry_idx, *indented)
+                } else {
+                    0
+                };
                 if row_y.saturating_add(row_height).saturating_add(gap) > body_bottom {
                     break;
                 }
@@ -906,15 +961,71 @@ fn render_workspace_list(
             line1.push(Span::styled(icon, icon_style));
             line1.push(Span::styled(" ", Style::default()));
         }
-        if card.indented {
-            let display_label = grouped_child_display_label(
-                &label,
-                ws.branch().as_deref(),
-                ws.custom_name.is_some(),
-            );
-            line1.push(Span::styled(display_label, name_style));
+        let display_label = if card.indented {
+            grouped_child_display_label(&label, ws.branch().as_deref(), ws.custom_name.is_some())
         } else {
-            line1.push(Span::styled(label, name_style));
+            label
+        };
+
+        // Worktree children already render the branch as their name, so the inline
+        // `• branch` only applies to top-level workspaces; children render like the
+        // default layout (name only).
+        if app.sidebar_single_line && !card.indented {
+            // Single-line layout: `name • branch ↑n ↓n` on one row. The git status
+            // is short and always kept; the name and branch share the remaining
+            // width via a rebalanced budget so short branches stay whole.
+            let prefix_width: usize = line1.iter().map(|span| span.content.chars().count()).sum();
+
+            let mut status_spans = Vec::new();
+            let mut status_width = 0usize;
+            if let Some((ahead, behind)) = ws.git_ahead_behind() {
+                if ahead > 0 {
+                    let text = format!(" ↑{ahead}");
+                    status_width += text.chars().count();
+                    status_spans.push(Span::styled(text, Style::default().fg(p.green)));
+                }
+                if behind > 0 {
+                    let text = format!(" ↓{behind}");
+                    status_width += text.chars().count();
+                    status_spans.push(Span::styled(text, Style::default().fg(p.red)));
+                }
+            }
+
+            let avail = (card.rect.width as usize)
+                .saturating_sub(prefix_width)
+                .saturating_sub(status_width);
+
+            if let Some(branch) = ws.branch() {
+                let sep = " • ";
+                let budget = avail.saturating_sub(sep.chars().count());
+                let (name_keep, branch_keep) = split_name_branch_budget(
+                    display_label.chars().count(),
+                    branch.chars().count(),
+                    budget,
+                );
+                let branch_color = if selected || is_active {
+                    p.mauve
+                } else {
+                    p.overlay0
+                };
+                line1.push(Span::styled(
+                    truncate_text(&display_label, name_keep),
+                    name_style,
+                ));
+                line1.push(Span::styled(sep, Style::default().fg(p.overlay0)));
+                line1.push(Span::styled(
+                    truncate_text(&branch, branch_keep),
+                    Style::default().fg(branch_color),
+                ));
+            } else {
+                line1.push(Span::styled(
+                    truncate_text(&display_label, avail),
+                    name_style,
+                ));
+            }
+            line1.extend(status_spans);
+        } else {
+            line1.push(Span::styled(display_label, name_style));
         }
 
         frame.render_widget(
@@ -922,7 +1033,8 @@ fn render_workspace_list(
             Rect::new(card.rect.x, row_y, card.rect.width, 1),
         );
 
-        if row_height > 1 && row_y + 1 < list_bottom {
+        // Default layout renders the branch on a second line below the name.
+        if !app.sidebar_single_line && row_height > 1 && row_y + 1 < list_bottom {
             if let Some(branch) = ws.branch() {
                 let upstream_label = ws.git_ahead_behind().and_then(|(ahead, behind)| {
                     let mut parts = Vec::new();
@@ -1057,10 +1169,13 @@ fn render_agent_detail(
 
     let mut row_y = body.y;
     let body_bottom = body.y + body.height;
-    for detail in details.iter().skip(app.agent_panel_scroll) {
+    for (idx, detail) in details.iter().enumerate().skip(app.agent_panel_scroll) {
         if row_y.saturating_add(1) >= body_bottom {
             break;
         }
+
+        // 1-based position, matching the `focus_agent` indexed shortcut.
+        let number = idx + 1;
 
         // Check if this agent entry corresponds to the active session
         let is_active = app.is_active_pane(detail.ws_idx, detail.tab_idx, detail.pane_id);
@@ -1091,6 +1206,8 @@ fn render_agent_detail(
         };
         let agent_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
 
+        // The name line (` icon name`) is never shifted by numbering, so the
+        // agent name keeps its full width.
         let primary_label =
             format_agent_panel_primary_label(detail, body.width.saturating_sub(3) as usize);
         let name_line = Line::from(vec![
@@ -1105,10 +1222,19 @@ fn render_agent_detail(
         );
         row_y += 1;
 
-        let mut status_spans = vec![
-            Span::styled("   ", Style::default()),
-            Span::styled(label, status_style),
-        ];
+        // The 1-based position is shown on the status line directly under the
+        // icon. Only 1-9 are labelled, since `focus_agent` shortcuts stop at 9.
+        let number_prefix = if app.agent_panel_numbers && number <= 9 {
+            let number_style = if is_active {
+                Style::default().fg(p.overlay0)
+            } else {
+                Style::default().fg(p.overlay0).add_modifier(Modifier::DIM)
+            };
+            Span::styled(format!(" {number} "), number_style)
+        } else {
+            Span::styled("   ", Style::default())
+        };
+        let mut status_spans = vec![number_prefix, Span::styled(label, status_style)];
         if let Some(agent_label) = &detail.agent_label {
             status_spans.push(Span::styled(" · ", agent_style));
             status_spans.push(Span::styled(agent_label, agent_style));
@@ -1123,7 +1249,8 @@ fn render_agent_detail(
         );
         row_y += 1;
 
-        if row_y < body_bottom {
+        // Optional 1-row gap between agent cards.
+        if app.agent_panel_row_gap && row_y < body_bottom {
             row_y += 1;
         }
     }
@@ -1492,6 +1619,73 @@ mod tests {
             is_linked_worktree: false,
         });
         ws
+    }
+
+    #[test]
+    fn sidebar_single_line_collapses_workspace_rows() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        let area = Rect::new(0, 0, 30, 20);
+
+        // Default: a branched workspace takes two rows.
+        app.sidebar_single_line = false;
+        let (cards, _) = compute_workspace_list_areas(&app, area);
+        assert_eq!(cards[0].rect.height, 2);
+
+        // Single-line collapses every workspace to one row.
+        app.sidebar_single_line = true;
+        let (cards, _) = compute_workspace_list_areas(&app, area);
+        assert_eq!(cards[0].rect.height, 1);
+    }
+
+    #[test]
+    fn single_line_budget_keeps_short_branch_and_truncates_name() {
+        // Everything fits: both kept whole.
+        assert_eq!(split_name_branch_budget(2, 3, 21), (2, 3));
+
+        // Long name, short branch: the branch donates its surplus, so it stays
+        // whole and the name is truncated.
+        assert_eq!(split_name_branch_budget(20, 4, 21), (17, 4));
+
+        // Short name, long branch: the name stays whole, the branch is truncated.
+        assert_eq!(split_name_branch_budget(2, 21, 21), (2, 19));
+
+        // Both long: split the budget (name favored), both truncated.
+        let (name_keep, branch_keep) = split_name_branch_budget(30, 30, 21);
+        assert_eq!(name_keep + branch_keep, 21);
+        assert!(name_keep >= branch_keep);
+    }
+
+    #[test]
+    fn space_and_agent_panel_row_gaps_are_independent() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        let area = Rect::new(0, 0, 30, 20);
+
+        // space_panel_row_gap controls the workspace list, independent of agents.
+        app.space_panel_row_gap = true;
+        let (cards, _) = compute_workspace_list_areas(&app, area);
+        let height = cards[0].rect.height;
+        assert_eq!(
+            cards[1].rect.y,
+            cards[0].rect.y + height + 1,
+            "a gap separates workspace rows"
+        );
+
+        app.space_panel_row_gap = false;
+        let (cards, _) = compute_workspace_list_areas(&app, area);
+        assert_eq!(
+            cards[1].rect.y,
+            cards[0].rect.y + height,
+            "rows pack together without the spaces gap"
+        );
+
+        // agent_panel_row_gap controls the agent list: removing it fits more cards
+        // in the same height (2 rows each vs 2 rows plus a 1-row gap).
+        let agent_area = Rect::new(0, 0, 30, 20);
+        let with_gap = agent_panel_visible_count(agent_area, true);
+        let without_gap = agent_panel_visible_count(agent_area, false);
+        assert!(without_gap > with_gap);
     }
 
     #[test]

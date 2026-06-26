@@ -1352,6 +1352,14 @@ pub struct AppState {
     /// Ratio of sidebar height allocated to the workspaces section.
     pub sidebar_section_split: f32,
     pub agent_panel_sort: AgentPanelSort,
+    /// Render workspaces on a single line (`name • branch`). From `ui.sidebar_single_line`.
+    pub sidebar_single_line: bool,
+    /// Keep a blank row between workspaces in the spaces list. From `ui.space_panel_row_gap`.
+    pub space_panel_row_gap: bool,
+    /// Keep a blank row between agents in the agents list. From `ui.agent_panel_row_gap`.
+    pub agent_panel_row_gap: bool,
+    /// Show 1-based position numbers (1-9) in the agents list. From `ui.agent_panel_numbers`.
+    pub agent_panel_numbers: bool,
     pub next_agent_state_change_seq: u64,
     /// Capture mouse input for Herdr's own mouse UI. When false, Herdr only
     /// captures mouse while the focused pane app requests mouse reporting.
@@ -1710,6 +1718,10 @@ impl AppState {
             sidebar_collapsed: false,
             sidebar_section_split: 0.5,
             agent_panel_sort: AgentPanelSort::Spaces,
+            sidebar_single_line: false,
+            space_panel_row_gap: true,
+            agent_panel_row_gap: true,
+            agent_panel_numbers: false,
             next_agent_state_change_seq: 0,
             mouse_capture: true,
             right_click_passthrough_modifiers: None,

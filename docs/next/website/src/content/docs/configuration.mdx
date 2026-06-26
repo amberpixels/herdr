@@ -300,6 +300,7 @@ Common options:
 sidebar_width = 32
 sidebar_min_width = 18
 sidebar_max_width = 36
+sidebar_single_line = false
 mobile_width_threshold = 64
 mouse_capture = true
 right_click_passthrough_modifier = ""
@@ -309,8 +310,11 @@ confirm_close = true
 prompt_new_tab_name = true
 pane_borders = true
 pane_gaps = true
+space_panel_row_gap = true
 show_agent_labels_on_pane_borders = false
 agent_panel_sort = "spaces"
+agent_panel_row_gap = true
+agent_panel_numbers = false
 accent = "cyan"
 ```
 
@@ -333,6 +337,8 @@ Set `mouse_scroll_lines` to change how many pane scrollback lines each mouse whe
 Set `pane_borders = false` to remove split pane borders. Set `pane_gaps = false` to make split panes share compact divider borders. With borders disabled, pane gaps use one blank terminal cell between panes. Terminal cells are usually taller than they are wide, so a one-row gap between top/bottom panes can look larger than a one-column gap between left/right panes.
 
 Set `show_agent_labels_on_pane_borders = true` if you want detected agent labels in split pane borders when no manual pane label is set.
+
+Set `sidebar_single_line = true` to render each workspace as `name • branch` on one line instead of two. `space_panel_row_gap` and `agent_panel_row_gap` independently toggle the blank row between entries in the spaces and agents lists; set either to `false` for a tighter list. Set `agent_panel_numbers = true` to show each agent's position (1-9) under its icon, matching the `focus_agent` shortcuts.
 
 ## Notifications
 

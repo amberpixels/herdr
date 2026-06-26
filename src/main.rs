@@ -244,6 +244,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Maximum sidebar width when expanded (columns)
 # sidebar_max_width = 36
 
+# Render each workspace on a single line ("name • branch") instead of the name
+# with the branch on a second line.
+# sidebar_single_line = false
+
 # Terminal width at or below which Herdr uses the mobile single-column layout.
 # Increase this for foldables, tablets, or wide phone terminals.
 # mobile_width_threshold = 64
@@ -278,12 +282,22 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Keep split panes visually separated instead of sharing divider borders.
 # pane_gaps = true
 
+# Keep a blank row between workspaces in the spaces list. Set false for a tighter
+# list; worktree children of one project stay gapless regardless.
+# space_panel_row_gap = true
+
 # Show detected/reported agent labels in split pane borders when no manual pane name is set.
 # show_agent_labels_on_pane_borders = false
 
 # Agent panel ordering: "spaces" (grouped by space) or "priority" (attention queue).
 # "workspaces" is accepted as an alias for "spaces".
 # agent_panel_sort = "spaces"
+
+# Keep a blank row between agents in the agents list. Set false for a tighter list.
+# agent_panel_row_gap = true
+
+# Show the 1-9 position number under each agent's icon (matches focus_agent shortcuts).
+# agent_panel_numbers = false
 
 # Accent color for highlights, borders, and navigation UI.
 # Accepts: hex (#89b4fa), named colors (cyan, blue, magenta), or rgb(r,g,b)
