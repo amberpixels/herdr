@@ -459,7 +459,9 @@ impl AppState {
                 return Some((detail.ws_idx, detail.tab_idx, detail.pane_id));
             }
             row_y = row_y.saturating_add(2);
-            if row_y < body.y + body.height {
+            // Mirror the render's optional 1-row gap between agent cards so hit
+            // testing stays aligned with the drawn layout.
+            if self.agent_panel_row_gap && row_y < body.y + body.height {
                 row_y = row_y.saturating_add(1);
             }
         }
@@ -759,6 +761,61 @@ mod tests {
         assert_eq!(app.state.active, Some(1));
         assert_eq!(app.state.selected, 1);
         assert_eq!(app.state.workspaces[1].active_tab, 0);
+        assert_eq!(
+            app.state.workspaces[1].tabs[0].layout.focused(),
+            second_pane
+        );
+    }
+
+    #[test]
+    fn clicking_agent_row_without_row_gap_hits_the_rendered_row() {
+        // With the compact layout (no gap between cards) each agent occupies
+        // exactly 2 rows. The hit-test must use the same stride the renderer
+        // does; a fixed 3-row stride drifts and lands on the wrong agent.
+        let mut app = app_for_mouse_test();
+        let first = Workspace::test_new("one");
+        let first_pane = first.tabs[0].root_pane;
+
+        let second = Workspace::test_new("two");
+        let second_pane = second.tabs[0].root_pane;
+
+        app.state.workspaces = vec![first, second];
+        app.state.ensure_test_terminals();
+        let first_terminal_id = app.state.workspaces[0].tabs[0].panes[&first_pane]
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&first_terminal_id)
+            .unwrap()
+            .detected_agent = Some(Agent::Pi);
+        let second_terminal_id = app.state.workspaces[1].tabs[0].panes[&second_pane]
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&second_terminal_id)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_row_gap = false;
+
+        let (_, detail_area) = crate::ui::expanded_sidebar_sections(
+            app.state.view.sidebar_rect,
+            app.state.sidebar_section_split,
+        );
+        let body = crate::ui::agent_panel_body_rect(detail_area, false);
+        // Second agent's name row: two rows below the first card, no gap.
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            body.x + 2,
+            body.y + 2,
+        ));
+
+        assert_eq!(app.state.active, Some(1));
+        assert_eq!(app.state.selected, 1);
         assert_eq!(
             app.state.workspaces[1].tabs[0].layout.focused(),
             second_pane
