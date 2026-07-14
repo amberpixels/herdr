@@ -218,9 +218,15 @@ fn workspace_row_height_in_body(
     workspace_row_height(app, workspace, indented).min(body_height)
 }
 
-fn workspace_entry_gap(entries: &[WorkspaceListEntry], entry_idx: usize, indented: bool) -> u16 {
+fn workspace_entry_gap(
+    entries: &[WorkspaceListEntry],
+    entry_idx: usize,
+    indented: bool,
+    gap_enabled: bool,
+) -> u16 {
     u16::from(
-        entry_idx + 1 < entries.len()
+        gap_enabled
+            && entry_idx + 1 < entries.len()
             && !(indented && next_entry_is_indented_workspace(entries, entry_idx)),
     )
 }
@@ -456,7 +462,7 @@ fn workspace_list_visible_count(app: &AppState, area: Rect, scroll: usize) -> us
                 };
                 (
                     workspace_row_height_in_body(app, ws, *indented, body.height),
-                    workspace_entry_gap(&entries, entry_idx, *indented),
+                    workspace_entry_gap(&entries, entry_idx, *indented, app.space_panel_row_gap),
                 )
             }
         };
@@ -482,7 +488,7 @@ fn workspace_list_bottom_start(app: &AppState, area: Rect) -> usize {
         let Some(workspace) = app.workspaces.get(*ws_idx) else {
             continue;
         };
-        let gap = workspace_entry_gap(&entries, entry_idx, *indented);
+        let gap = workspace_entry_gap(&entries, entry_idx, *indented, app.space_panel_row_gap);
         let needed = workspace_row_height_in_body(app, workspace, *indented, body.height)
             .saturating_add(gap);
         if used_rows.saturating_add(needed) > body.height {
@@ -567,7 +573,7 @@ fn agent_panel_visible_count_from(app: &AppState, area: Rect, scroll: usize) -> 
         }
         used_rows = used_rows.saturating_add(height);
         visible += 1;
-        if used_rows < body.height {
+        if app.agent_panel_row_gap && used_rows < body.height {
             used_rows = used_rows.saturating_add(1);
         }
     }
@@ -580,7 +586,7 @@ fn agent_panel_bottom_start(app: &AppState, area: Rect) -> usize {
     let mut used_rows = 0u16;
     let mut start = entries.len();
     for (index, entry) in entries.iter().enumerate().rev() {
-        let gap = u16::from(index + 1 < entries.len());
+        let gap = u16::from(app.agent_panel_row_gap && index + 1 < entries.len());
         let needed = agent_entry_height_in_body(app, entry, body.height).saturating_add(gap);
         if used_rows.saturating_add(needed) > body.height {
             break;
@@ -664,7 +670,8 @@ pub(crate) fn compute_workspace_list_areas(
                     continue;
                 };
                 let row_height = workspace_row_height_in_body(app, ws, *indented, body.height);
-                let gap = workspace_entry_gap(&entries, entry_idx, *indented);
+                let gap =
+                    workspace_entry_gap(&entries, entry_idx, *indented, app.space_panel_row_gap);
                 if row_y.saturating_add(row_height) > body_bottom {
                     break;
                 }
@@ -1298,7 +1305,7 @@ fn render_agent_detail(
 
     let mut row_y = body.y;
     let body_bottom = body.y + body.height;
-    for detail in details.iter().skip(app.agent_panel_scroll) {
+    for (idx, detail) in details.iter().enumerate().skip(app.agent_panel_scroll) {
         let label_color = state_label_color(detail.state, detail.seen, p);
         let rows = resolved_agent_rows(app, detail);
         let height = (rows.len().max(1) as u16).min(body.height);
@@ -1325,8 +1332,24 @@ fn render_agent_detail(
         let agent_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
         let state_icon = agent_icon(detail.state, detail.seen, app.spinner_tick, p);
 
+        // 1-based position under the icon, matching the `focus_agent` indexed
+        // shortcuts. Only 1-9 are labelled, and only on the row below the icon.
+        let number = idx + 1;
+        let number_style = if is_active {
+            Style::default().fg(p.overlay0)
+        } else {
+            Style::default().fg(p.overlay0).add_modifier(Modifier::DIM)
+        };
+
         for (row_index, resolved) in rows.iter().take(height as usize).enumerate() {
-            let mut spans = vec![Span::raw(if row_index == 0 { " " } else { "   " })];
+            let prefix = if row_index == 0 {
+                Span::raw(" ")
+            } else if row_index == 1 && app.agent_panel_numbers && number <= 9 {
+                Span::styled(format!(" {number} "), number_style)
+            } else {
+                Span::raw("   ")
+            };
+            let mut spans = vec![prefix];
             spans.extend(resolved_token_spans(
                 resolved,
                 state_icon,
@@ -1344,7 +1367,7 @@ fn render_agent_detail(
             );
         }
         row_y = row_y.saturating_add(height);
-        if row_y < body_bottom {
+        if app.agent_panel_row_gap && row_y < body_bottom {
             row_y += 1;
         }
     }
@@ -1443,6 +1466,80 @@ mod tests {
         assert_eq!(second, "   pi");
         assert!(!first.contains("working"));
         assert!(!second.contains("working"));
+    }
+
+    #[test]
+    fn workspace_entry_gap_respects_space_panel_row_gap_toggle() {
+        let entries = vec![
+            WorkspaceListEntry::Workspace {
+                ws_idx: 0,
+                indented: false,
+            },
+            WorkspaceListEntry::Workspace {
+                ws_idx: 1,
+                indented: false,
+            },
+        ];
+
+        assert_eq!(workspace_entry_gap(&entries, 0, false, true), 1);
+        assert_eq!(workspace_entry_gap(&entries, 0, false, false), 0);
+        // The last entry never carries a trailing gap regardless of the toggle.
+        assert_eq!(workspace_entry_gap(&entries, 1, false, true), 0);
+    }
+
+    #[test]
+    fn disabling_agent_panel_row_gap_fits_more_agents() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![
+            Workspace::test_new("one"),
+            Workspace::test_new("two"),
+            Workspace::test_new("three"),
+        ];
+        app.ensure_test_terminals();
+        for ws_idx in 0..app.workspaces.len() {
+            let pane_id = app.workspaces[ws_idx].tabs[0].root_pane;
+            let terminal_id = app.workspaces[ws_idx].tabs[0].panes[&pane_id]
+                .attached_terminal_id
+                .clone();
+            app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Pi);
+        }
+
+        // Body height 6 (area height 9 minus the 3 header rows). Each agent is two
+        // rows tall, so a 1-row gap between cards leaves room for only two agents.
+        let area = Rect::new(0, 0, 20, 9);
+
+        app.agent_panel_row_gap = true;
+        assert_eq!(agent_panel_scroll_metrics(&app, area).viewport_rows, 2);
+
+        app.agent_panel_row_gap = false;
+        assert_eq!(agent_panel_scroll_metrics(&app, area).viewport_rows, 3);
+    }
+
+    #[test]
+    fn agent_panel_numbers_render_position_under_icon() {
+        let mut app = crate::app::state::AppState::test_new();
+        let workspace = Workspace::test_new("one");
+        let pane_id = workspace.tabs[0].root_pane;
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Pi);
+        app.agent_panel_numbers = true;
+
+        let area = Rect::new(0, 0, 26, 20);
+        let mut terminal = Terminal::new(TestBackend::new(26, 20)).unwrap();
+        terminal
+            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        let body = agent_panel_body_rect(agent_area, false);
+
+        // The 1-based position sits directly under the icon on the status row.
+        let second = row_text(buffer, body.y + 1, 25);
+        assert_eq!(second, " 1 pi");
     }
 
     #[test]

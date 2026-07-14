@@ -460,7 +460,9 @@ impl AppState {
                 return Some((detail.ws_idx, detail.tab_idx, detail.pane_id));
             }
             row_y = row_y.saturating_add(height);
-            if row_y < body.y + body.height {
+            // Mirror the render's optional 1-row gap between agent cards so hit
+            // testing stays aligned with the drawn layout.
+            if self.agent_panel_row_gap && row_y < body.y + body.height {
                 row_y = row_y.saturating_add(1);
             }
         }

@@ -305,6 +305,16 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # "workspaces" is accepted as an alias for "spaces".
 # agent_panel_sort = "spaces"
 
+# Keep a blank row between workspaces in the spaces list. Set false for a tighter,
+# compact list; worktree children of one project stay gapless regardless.
+# space_panel_row_gap = true
+
+# Keep a blank row between agents in the agents list. Set false for a tighter, compact list.
+# agent_panel_row_gap = true
+
+# Show the 1-9 position number under each agent's icon (matches focus_agent shortcuts).
+# agent_panel_numbers = false
+
 # Expanded agent rows. Built-ins are state_icon, state_text, workspace, tab, pane, agent,
 # terminal_title, and terminal_title_stripped.
 # Custom values reported through pane metadata use a $name token.

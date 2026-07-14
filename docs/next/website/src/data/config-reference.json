@@ -669,6 +669,24 @@
           ]
         },
         {
+          "key": "ui.space_panel_row_gap",
+          "type": "boolean",
+          "default": "true",
+          "description": "Keep a blank row between workspaces in the spaces list. Worktree children of one project stay gapless regardless."
+        },
+        {
+          "key": "ui.agent_panel_row_gap",
+          "type": "boolean",
+          "default": "true",
+          "description": "Keep a blank row between agents in the agents list."
+        },
+        {
+          "key": "ui.agent_panel_numbers",
+          "type": "boolean",
+          "default": "false",
+          "description": "Show 1-based position numbers (1-9) under each agent's icon, matching the focus_agent indexed shortcuts."
+        },
+        {
           "key": "ui.sidebar.agents.rows",
           "type": "list of token rows",
           "default": "[[\"state_icon\", \"workspace\", \"tab\"], [\"agent\"]]",

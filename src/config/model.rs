@@ -810,6 +810,14 @@ pub struct UiConfig {
     pub hide_tab_bar_when_single_tab: bool,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
+    /// Keep a blank row between workspaces in the spaces list. Worktree children
+    /// of one project stay gapless regardless. Default: true.
+    pub space_panel_row_gap: bool,
+    /// Keep a blank row between agents in the agents list. Default: true.
+    pub agent_panel_row_gap: bool,
+    /// Show 1-based position numbers (1-9) under each agent's icon, matching the
+    /// `focus_agent` indexed shortcuts. Default: false.
+    pub agent_panel_numbers: bool,
     /// Expanded sidebar row composition.
     pub sidebar: SidebarConfig,
     /// Accent color for highlights, borders, and navigation UI.
@@ -1005,6 +1013,9 @@ impl Default for UiConfig {
             show_agent_labels_on_pane_borders: false,
             hide_tab_bar_when_single_tab: false,
             agent_panel_sort: AgentPanelSortConfig::Spaces,
+            space_panel_row_gap: true,
+            agent_panel_row_gap: true,
+            agent_panel_numbers: false,
             sidebar: SidebarConfig::default(),
             accent: "cyan".into(),
             toast: ToastConfig::default(),
