@@ -4,8 +4,8 @@ use crossterm::event::KeyModifiers;
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use super::{
-    ActionKeybinds, BindingConfig, CommandKeybindConfig, IndexedKeybind, Keybinds, SoundConfig,
-    ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD, DEFAULT_MOUSE_SCROLL_LINES,
+    ActionKeybinds, BindingConfig, CommandKeybindConfig, IndexedKeybind, Keybinds, SidebarConfig,
+    SoundConfig, ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD, DEFAULT_MOUSE_SCROLL_LINES,
     DEFAULT_SCROLLBACK_LIMIT_BYTES,
 };
 
@@ -780,15 +780,14 @@ pub struct UiConfig {
     pub sidebar_min_width: u16,
     /// Maximum sidebar width (columns) when expanded. Default: 36.
     pub sidebar_max_width: u16,
-    /// Render each workspace on a single line (`name • branch`) instead of the
-    /// name with the branch on a second line. Default: false.
-    pub sidebar_single_line: bool,
     /// Collapsed sidebar presentation. Default: compact.
     pub sidebar_collapsed_mode: SidebarCollapsedModeConfig,
     /// Terminal width at or below which Herdr uses the mobile single-column layout. Default: 64.
     pub mobile_width_threshold: u16,
     /// Capture mouse input for Herdr's mouse UI. Default: true.
     pub mouse_capture: bool,
+    /// Copy text selected with the mouse. Default: true.
+    pub copy_on_select: bool,
     /// Host cursor policy. Default: auto.
     pub host_cursor: HostCursorModeConfig,
     /// Modifier that lets right-click gestures pass through to pane apps. Empty disables it.
@@ -805,20 +804,14 @@ pub struct UiConfig {
     pub pane_borders: bool,
     /// Keep split panes visually separated instead of sharing divider borders. Default: true.
     pub pane_gaps: bool,
-    /// Keep a blank row between workspaces in the spaces list. Worktree children
-    /// of one project stay gapless regardless. Default: true.
-    pub space_panel_row_gap: bool,
     /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
     pub show_agent_labels_on_pane_borders: bool,
     /// Hide the tab row when the workspace has one tab. Default: false.
     pub hide_tab_bar_when_single_tab: bool,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
-    /// Keep a blank row between agents in the agents list. Default: true.
-    pub agent_panel_row_gap: bool,
-    /// Show 1-based position numbers (1-9) in the agents list, matching the
-    /// `focus_agent` indexed shortcuts. Default: false.
-    pub agent_panel_numbers: bool,
+    /// Expanded sidebar row composition.
+    pub sidebar: SidebarConfig,
     /// Accent color for highlights, borders, and navigation UI.
     /// Accepts hex (#89b4fa), named colors (cyan, blue), or RGB (rgb(137,180,250)).
     pub accent: String,
@@ -906,7 +899,7 @@ pub struct ExperimentalConfig {
     /// if the list contains no valid names, the reveal does not apply.
     /// Accepted names: pi, claude, codex, gemini, cursor, devin, cline,
     /// opencode, copilot, kimi, kiro, droid, amp, grok, hermes, kilo,
-    /// qodercli, qoder.
+    /// qodercli, qoder, maki.
     /// Default: empty.
     pub cjk_ime_agents: Vec<String>,
     /// Cursor shape rendered for the IME anchor when
@@ -997,10 +990,10 @@ impl Default for UiConfig {
             sidebar_width: 26,
             sidebar_min_width: 18,
             sidebar_max_width: 36,
-            sidebar_single_line: false,
             sidebar_collapsed_mode: SidebarCollapsedModeConfig::Compact,
             mobile_width_threshold: DEFAULT_MOBILE_WIDTH_THRESHOLD,
             mouse_capture: true,
+            copy_on_select: true,
             host_cursor: HostCursorModeConfig::Auto,
             right_click_passthrough_modifier: RightClickPassthroughModifierConfig::default(),
             redraw_on_focus_gained: true,
@@ -1009,12 +1002,10 @@ impl Default for UiConfig {
             prompt_new_tab_name: true,
             pane_borders: true,
             pane_gaps: true,
-            space_panel_row_gap: true,
             show_agent_labels_on_pane_borders: false,
             hide_tab_bar_when_single_tab: false,
             agent_panel_sort: AgentPanelSortConfig::Spaces,
-            agent_panel_row_gap: true,
-            agent_panel_numbers: false,
+            sidebar: SidebarConfig::default(),
             accent: "cyan".into(),
             toast: ToastConfig::default(),
             sound: SoundConfig::default(),
@@ -1131,6 +1122,24 @@ manifest_check = false
         assert!(!config.update.manifest_check);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_update_config_defaults_to_preview() {
+        let empty: Config = toml::from_str("").unwrap();
+        let without_update_channel: Config =
+            toml::from_str("[update]\nversion_check = false").unwrap();
+
+        assert_eq!(
+            Config::default().update.channel,
+            UpdateChannelConfig::Preview
+        );
+        assert_eq!(empty.update.channel, UpdateChannelConfig::Preview);
+        assert_eq!(
+            without_update_channel.update.channel,
+            UpdateChannelConfig::Preview
+        );
+    }
+
     #[test]
     fn terminal_default_shell_defaults_empty_and_parses() {
         let default_config = Config::default();
@@ -1217,28 +1226,6 @@ agent_panel_scope = "current"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.ui.agent_panel_sort, AgentPanelSortConfig::Spaces);
-    }
-
-    #[test]
-    fn sidebar_layout_options_default_off_and_parse() {
-        let default_config = Config::default();
-        assert!(!default_config.ui.sidebar_single_line);
-        assert!(default_config.ui.space_panel_row_gap);
-        assert!(default_config.ui.agent_panel_row_gap);
-        assert!(!default_config.ui.agent_panel_numbers);
-
-        let toml = r#"
-[ui]
-sidebar_single_line = true
-space_panel_row_gap = false
-agent_panel_row_gap = false
-agent_panel_numbers = true
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(config.ui.sidebar_single_line);
-        assert!(!config.ui.space_panel_row_gap);
-        assert!(!config.ui.agent_panel_row_gap);
-        assert!(config.ui.agent_panel_numbers);
     }
 
     #[test]
@@ -1415,6 +1402,19 @@ mouse_capture = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(!config.ui.mouse_capture);
+    }
+
+    #[test]
+    fn copy_on_select_default_on_and_parse() {
+        let default_config = Config::default();
+        assert!(default_config.ui.copy_on_select);
+
+        let toml = r#"
+[ui]
+copy_on_select = false
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(!config.ui.copy_on_select);
     }
 
     #[test]
