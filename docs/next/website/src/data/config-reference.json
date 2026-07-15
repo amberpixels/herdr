@@ -669,6 +669,12 @@
           ]
         },
         {
+          "key": "ui.agent_panel_numbers",
+          "type": "boolean",
+          "default": "false",
+          "description": "Show 1-based position numbers (1-9) under each agent's icon, matching the focus_agent indexed shortcuts."
+        },
+        {
           "key": "ui.sidebar.agents.row_gap",
           "type": "integer",
           "default": "0",

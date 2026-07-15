@@ -1340,8 +1340,24 @@ fn render_agent_detail(
         let agent_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
         let state_icon = agent_icon(detail.state, detail.seen, app.spinner_tick, p);
 
+        // 1-based position under the icon, matching the `focus_agent` indexed
+        // shortcuts. Only 1-9 are labelled, and only on the row below the icon.
+        let number = index + 1;
+        let number_style = if is_active {
+            Style::default().fg(p.overlay0)
+        } else {
+            Style::default().fg(p.overlay0).add_modifier(Modifier::DIM)
+        };
+
         for (row_index, resolved) in rows.iter().take(height as usize).enumerate() {
-            let mut spans = vec![Span::raw(if row_index == 0 { " " } else { "   " })];
+            let prefix = if row_index == 0 {
+                Span::raw(" ")
+            } else if row_index == 1 && app.agent_panel_numbers && number <= 9 {
+                Span::styled(format!(" {number} "), number_style)
+            } else {
+                Span::raw("   ")
+            };
+            let mut spans = vec![prefix];
             spans.extend(resolved_token_spans(
                 resolved,
                 state_icon,
@@ -1458,6 +1474,33 @@ mod tests {
         assert_eq!(second, "   pi");
         assert!(!first.contains("working"));
         assert!(!second.contains("working"));
+    }
+
+    #[test]
+    fn agent_panel_numbers_render_position_under_icon() {
+        let mut app = crate::app::state::AppState::test_new();
+        let workspace = Workspace::test_new("one");
+        let pane_id = workspace.tabs[0].root_pane;
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Pi);
+        app.agent_panel_numbers = true;
+
+        let area = Rect::new(0, 0, 26, 20);
+        let mut terminal = Terminal::new(TestBackend::new(26, 20)).unwrap();
+        terminal
+            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        let body = agent_panel_body_rect(agent_area, false);
+
+        // The 1-based position sits directly under the icon on the status row.
+        let second = row_text(buffer, body.y + 1, 25);
+        assert_eq!(second, " 1 pi");
     }
 
     #[test]
