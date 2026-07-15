@@ -219,16 +219,18 @@ fn workspace_row_height_in_body(
 }
 
 fn workspace_entry_gap(
+    app: &AppState,
     entries: &[WorkspaceListEntry],
     entry_idx: usize,
     indented: bool,
-    gap_enabled: bool,
 ) -> u16 {
-    u16::from(
-        gap_enabled
-            && entry_idx + 1 < entries.len()
-            && !(indented && next_entry_is_indented_workspace(entries, entry_idx)),
-    )
+    if entry_idx + 1 < entries.len()
+        && !(indented && next_entry_is_indented_workspace(entries, entry_idx))
+    {
+        app.sidebar_spaces.row_gap
+    } else {
+        0
+    }
 }
 
 fn workspace_attention_priority(state: AgentState, seen: bool) -> u8 {
@@ -462,7 +464,7 @@ fn workspace_list_visible_count(app: &AppState, area: Rect, scroll: usize) -> us
                 };
                 (
                     workspace_row_height_in_body(app, ws, *indented, body.height),
-                    workspace_entry_gap(&entries, entry_idx, *indented, app.space_panel_row_gap),
+                    workspace_entry_gap(app, &entries, entry_idx, *indented),
                 )
             }
         };
@@ -471,9 +473,7 @@ fn workspace_list_visible_count(app: &AppState, area: Rect, scroll: usize) -> us
         }
         used_rows = used_rows.saturating_add(row_height);
         visible += 1;
-        if gap > 0 && used_rows < body.height {
-            used_rows = used_rows.saturating_add(1);
-        }
+        used_rows = used_rows.saturating_add(gap).min(body.height);
     }
     visible
 }
@@ -488,7 +488,7 @@ fn workspace_list_bottom_start(app: &AppState, area: Rect) -> usize {
         let Some(workspace) = app.workspaces.get(*ws_idx) else {
             continue;
         };
-        let gap = workspace_entry_gap(&entries, entry_idx, *indented, app.space_panel_row_gap);
+        let gap = workspace_entry_gap(app, &entries, entry_idx, *indented);
         let needed = workspace_row_height_in_body(app, workspace, *indented, body.height)
             .saturating_add(gap);
         if used_rows.saturating_add(needed) > body.height {
@@ -558,6 +558,14 @@ pub(crate) fn agent_entry_height_in_body(
         .min(body_height)
 }
 
+pub(crate) fn agent_entry_gap(app: &AppState, entry_idx: usize, entry_count: usize) -> u16 {
+    if entry_idx + 1 < entry_count {
+        app.sidebar_agents.row_gap
+    } else {
+        0
+    }
+}
+
 fn agent_panel_visible_count_from(app: &AppState, area: Rect, scroll: usize) -> usize {
     let body = agent_panel_body_rect(area, false);
     if body.width == 0 || body.height == 0 {
@@ -566,16 +574,17 @@ fn agent_panel_visible_count_from(app: &AppState, area: Rect, scroll: usize) -> 
 
     let mut used_rows = 0u16;
     let mut visible = 0usize;
-    for entry in agent_panel_entries(app).iter().skip(scroll) {
+    let entries = agent_panel_entries(app);
+    for (index, entry) in entries.iter().enumerate().skip(scroll) {
         let height = agent_entry_height_in_body(app, entry, body.height);
         if used_rows.saturating_add(height) > body.height {
             break;
         }
         used_rows = used_rows.saturating_add(height);
         visible += 1;
-        if app.agent_panel_row_gap && used_rows < body.height {
-            used_rows = used_rows.saturating_add(1);
-        }
+        used_rows = used_rows
+            .saturating_add(agent_entry_gap(app, index, entries.len()))
+            .min(body.height);
     }
     visible
 }
@@ -586,7 +595,7 @@ fn agent_panel_bottom_start(app: &AppState, area: Rect) -> usize {
     let mut used_rows = 0u16;
     let mut start = entries.len();
     for (index, entry) in entries.iter().enumerate().rev() {
-        let gap = u16::from(app.agent_panel_row_gap && index + 1 < entries.len());
+        let gap = agent_entry_gap(app, index, entries.len());
         let needed = agent_entry_height_in_body(app, entry, body.height).saturating_add(gap);
         if used_rows.saturating_add(needed) > body.height {
             break;
@@ -670,8 +679,7 @@ pub(crate) fn compute_workspace_list_areas(
                     continue;
                 };
                 let row_height = workspace_row_height_in_body(app, ws, *indented, body.height);
-                let gap =
-                    workspace_entry_gap(&entries, entry_idx, *indented, app.space_panel_row_gap);
+                let gap = workspace_entry_gap(app, &entries, entry_idx, *indented);
                 if row_y.saturating_add(row_height) > body_bottom {
                     break;
                 }
@@ -680,10 +688,10 @@ pub(crate) fn compute_workspace_list_areas(
                     rect: Rect::new(body.x, row_y, body.width, row_height),
                     indented: *indented,
                 });
-                row_y = row_y.saturating_add(row_height);
-                if gap > 0 && row_y < body_bottom {
-                    row_y = row_y.saturating_add(1);
-                }
+                row_y = row_y
+                    .saturating_add(row_height)
+                    .saturating_add(gap)
+                    .min(body_bottom);
             }
         }
     }
@@ -1305,7 +1313,7 @@ fn render_agent_detail(
 
     let mut row_y = body.y;
     let body_bottom = body.y + body.height;
-    for (idx, detail) in details.iter().enumerate().skip(app.agent_panel_scroll) {
+    for (index, detail) in details.iter().enumerate().skip(app.agent_panel_scroll) {
         let label_color = state_label_color(detail.state, detail.seen, p);
         let rows = resolved_agent_rows(app, detail);
         let height = (rows.len().max(1) as u16).min(body.height);
@@ -1334,7 +1342,7 @@ fn render_agent_detail(
 
         // 1-based position under the icon, matching the `focus_agent` indexed
         // shortcuts. Only 1-9 are labelled, and only on the row below the icon.
-        let number = idx + 1;
+        let number = index + 1;
         let number_style = if is_active {
             Style::default().fg(p.overlay0)
         } else {
@@ -1366,10 +1374,10 @@ fn render_agent_detail(
                 Rect::new(body.x, row_y + row_index as u16, body.width, 1),
             );
         }
-        row_y = row_y.saturating_add(height);
-        if app.agent_panel_row_gap && row_y < body_bottom {
-            row_y += 1;
-        }
+        row_y = row_y
+            .saturating_add(height)
+            .saturating_add(agent_entry_gap(app, index, details.len()))
+            .min(body_bottom);
     }
 
     if let Some(track) = scrollbar_rect {
@@ -1469,53 +1477,6 @@ mod tests {
     }
 
     #[test]
-    fn workspace_entry_gap_respects_space_panel_row_gap_toggle() {
-        let entries = vec![
-            WorkspaceListEntry::Workspace {
-                ws_idx: 0,
-                indented: false,
-            },
-            WorkspaceListEntry::Workspace {
-                ws_idx: 1,
-                indented: false,
-            },
-        ];
-
-        assert_eq!(workspace_entry_gap(&entries, 0, false, true), 1);
-        assert_eq!(workspace_entry_gap(&entries, 0, false, false), 0);
-        // The last entry never carries a trailing gap regardless of the toggle.
-        assert_eq!(workspace_entry_gap(&entries, 1, false, true), 0);
-    }
-
-    #[test]
-    fn disabling_agent_panel_row_gap_fits_more_agents() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.workspaces = vec![
-            Workspace::test_new("one"),
-            Workspace::test_new("two"),
-            Workspace::test_new("three"),
-        ];
-        app.ensure_test_terminals();
-        for ws_idx in 0..app.workspaces.len() {
-            let pane_id = app.workspaces[ws_idx].tabs[0].root_pane;
-            let terminal_id = app.workspaces[ws_idx].tabs[0].panes[&pane_id]
-                .attached_terminal_id
-                .clone();
-            app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Pi);
-        }
-
-        // Body height 6 (area height 9 minus the 3 header rows). Each agent is two
-        // rows tall, so a 1-row gap between cards leaves room for only two agents.
-        let area = Rect::new(0, 0, 20, 9);
-
-        app.agent_panel_row_gap = true;
-        assert_eq!(agent_panel_scroll_metrics(&app, area).viewport_rows, 2);
-
-        app.agent_panel_row_gap = false;
-        assert_eq!(agent_panel_scroll_metrics(&app, area).viewport_rows, 3);
-    }
-
-    #[test]
     fn agent_panel_numbers_render_position_under_icon() {
         let mut app = crate::app::state::AppState::test_new();
         let workspace = Workspace::test_new("one");
@@ -1540,6 +1501,36 @@ mod tests {
         // The 1-based position sits directly under the icon on the status row.
         let second = row_text(buffer, body.y + 1, 25);
         assert_eq!(second, " 1 pi");
+    }
+
+    #[test]
+    fn default_agent_row_gap_packs_rendering_and_scroll_geometry() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.ensure_test_terminals();
+        for (workspace, agent) in app.workspaces.iter().zip([Agent::Pi, Agent::Claude]) {
+            let pane_id = workspace.tabs[0].root_pane;
+            let terminal_id = workspace.tabs[0].panes[&pane_id]
+                .attached_terminal_id
+                .clone();
+            app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(agent);
+        }
+        app.sidebar_agents.rows = vec![vec![crate::config::AgentSidebarToken::Agent]];
+        assert_eq!(app.sidebar_agents.row_gap, 0);
+
+        let area = Rect::new(0, 0, 20, 5);
+        let metrics = agent_panel_scroll_metrics(&app, area);
+        let body = agent_panel_body_rect(area, false);
+        let mut terminal = Terminal::new(TestBackend::new(20, 5)).unwrap();
+        terminal
+            .draw(|frame| render_agent_detail(&app, &TerminalRuntimeRegistry::new(), frame, area))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+
+        assert_eq!(metrics.viewport_rows, 2);
+        assert_eq!(metrics.max_offset_from_bottom, 0);
+        assert_eq!(row_text(buffer, body.y, body.width), " pi");
+        assert_eq!(row_text(buffer, body.y + 1, body.width), " claude");
     }
 
     #[test]
@@ -2117,6 +2108,7 @@ mod tests {
             workspace_with_worktree_space("main", Some("repo-key"), "/repo/herdr"),
             workspace_with_worktree_space("issue", Some("repo-key"), "/repo/herdr-issue"),
         ];
+        app.sidebar_spaces.row_gap = 1;
 
         let (cards, headers) = compute_workspace_list_areas(&app, Rect::new(0, 0, 30, 20));
 
@@ -2126,6 +2118,87 @@ mod tests {
         assert_eq!(cards[1].ws_idx, 1);
         assert!(cards[1].indented);
         assert_eq!(cards[1].rect.y, cards[0].rect.y + cards[0].rect.height + 1);
+    }
+
+    #[test]
+    fn space_row_gap_preserves_compact_worktree_children() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![
+            workspace_with_worktree_space("main", Some("repo-key"), "/repo/herdr"),
+            workspace_with_worktree_space("issue", Some("repo-key"), "/repo/herdr-issue"),
+            workspace_with_worktree_space("review", Some("repo-key"), "/repo/herdr-review"),
+            Workspace::test_new("notes"),
+        ];
+        app.sidebar_spaces.rows = vec![vec![crate::config::SpaceSidebarToken::Workspace]];
+        app.sidebar_spaces.row_gap = 2;
+
+        let (spacious, _) = compute_workspace_list_areas(&app, Rect::new(0, 0, 30, 30));
+        assert_eq!(
+            spacious[1].rect.y,
+            spacious[0].rect.y + spacious[0].rect.height + 2
+        );
+        assert_eq!(
+            spacious[2].rect.y,
+            spacious[1].rect.y + spacious[1].rect.height
+        );
+        assert_eq!(
+            spacious[3].rect.y,
+            spacious[2].rect.y + spacious[2].rect.height + 2
+        );
+        let spacious_metrics = workspace_list_scroll_metrics(&app, Rect::new(0, 0, 30, 7));
+        assert_eq!(spacious_metrics.viewport_rows, 2);
+        assert_eq!(spacious_metrics.max_offset_from_bottom, 2);
+
+        app.sidebar_spaces.row_gap = 0;
+        let (packed, _) = compute_workspace_list_areas(&app, Rect::new(0, 0, 30, 30));
+        assert!(packed
+            .windows(2)
+            .all(|pair| pair[1].rect.y == pair[0].rect.y + pair[0].rect.height));
+        let packed_metrics = workspace_list_scroll_metrics(&app, Rect::new(0, 0, 30, 7));
+        assert_eq!(packed_metrics.viewport_rows, 4);
+        assert_eq!(packed_metrics.max_offset_from_bottom, 0);
+    }
+
+    #[test]
+    fn packed_workspace_drag_indicator_overlays_an_internal_boundary() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![
+            Workspace::test_new("a"),
+            Workspace::test_new("b"),
+            Workspace::test_new("c"),
+        ];
+        app.sidebar_spaces.rows = vec![vec![crate::config::SpaceSidebarToken::Workspace]];
+        app.sidebar_spaces.row_gap = 0;
+        let area = Rect::new(0, 0, 30, 20);
+        app.view.workspace_card_areas = compute_workspace_card_areas(&app, area);
+        let list_area = workspace_list_rect(area, app.sidebar_section_split);
+        let indicator_row =
+            workspace_drop_indicator_row(&app.view.workspace_card_areas, list_area, 2).unwrap();
+        assert_eq!(indicator_row, app.view.workspace_card_areas[1].rect.y);
+        app.drag = Some(crate::app::state::DragState {
+            target: crate::app::state::DragTarget::WorkspaceReorder {
+                source_ws_idx: 0,
+                insert_idx: Some(2),
+            },
+        });
+
+        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
+        terminal
+            .draw(|frame| {
+                render_workspace_list(
+                    &app,
+                    &TerminalRuntimeRegistry::new(),
+                    frame,
+                    list_area,
+                    false,
+                )
+            })
+            .unwrap();
+
+        assert_eq!(
+            terminal.backend().buffer()[(list_area.x, indicator_row)].symbol(),
+            "─"
+        );
     }
 
     #[test]

@@ -163,12 +163,38 @@ Custom commands use the same keybinding syntax.
 ```toml
 [[keys.command]]
 key = "prefix+alt+g"
-type = "pane"
+type = "popup"
 command = "lazygit"
 description = "run lazygit"
+width = "80%"
+height = "80%"
 ```
 
-`type = "pane"` opens a temporary pane and closes it when the command exits.
+`type = "popup"` opens a session-modal popup without changing the tab layout.
+The popup receives all terminal input, including Escape, until its command
+exits. `width` and `height` are optional; omit them for the default half-size
+popup, use numbers for terminal cells, or use strings like `"80%"` for a
+percentage of the terminal area. Dimensions include the popup border, and
+values smaller than the popup minimum are clamped. Popup commands do not receive
+`HERDR_PANE_ID`; use `HERDR_ACTIVE_PANE_ID` for the underlying tiled pane.
+
+On Unix and macOS, a popup command can also provide an ad-hoc terminal without
+adding a split or tab:
+
+```toml
+[[keys.command]]
+key = "prefix+t"
+type = "popup"
+command = "exec \"${SHELL:-sh}\""
+description = "open scratch terminal"
+width = "80%"
+height = "80%"
+```
+
+On Windows, use a shell command such as `command = "powershell.exe -NoLogo"`
+instead. Exit the shell to close the popup and restore the tiled terminal view.
+
+`type = "pane"` opens a temporary zoomed pane and closes it when the command exits.
 
 `type = "shell"` runs detached in the background.
 
@@ -236,12 +262,14 @@ The expanded desktop sidebar renders each inner array in `rows` as one line. The
 
 ```toml
 [ui.sidebar.agents]
+row_gap = 0
 rows = [
   ["state_icon", "workspace", "tab"],
   ["agent"],
 ]
 
 [ui.sidebar.spaces]
+row_gap = 0
 rows = [
   ["state_icon", "workspace"],
   ["branch", "git_status"],
@@ -270,6 +298,8 @@ Space rows accept these built-in tokens:
 - `$name` — custom workspace metadata named `name`.
 
 Tokens render in their configured order. Herdr normally separates adjacent values with ` · ` and uses a single space after `state_icon`. Missing values and their separators disappear; a row disappears when none of its tokens have a value. Each layout may contain at most 16 rows, with at most 16 tokens in each row.
+
+`row_gap` controls the blank terminal rows between entries, independently for the Agent and Space panels. It defaults to `0`, which packs entries together; set it to `1` to restore the previous spacing. It does not add spacing between the content lines declared in `rows`. Consecutive indented worktree children remain packed as one Space group.
 
 Override the complete Agent layout for a known agent under `rows_by_agent`:
 
@@ -312,7 +342,7 @@ Use `herdr workspace report-metadata` in the same way for custom Space tokens. U
 
 Sidebar row settings affect only the expanded desktop sidebar. Collapsed and mobile views keep their compact layouts.
 
-By default Herdr leaves a blank row between entries in both lists. Set `space_panel_row_gap = false` or `agent_panel_row_gap = false` for a tighter, compact list. Set `agent_panel_numbers = true` to show each agent's position (1-9) under its icon, matching the `focus_agent` shortcuts.
+Set `agent_panel_numbers = true` to show each agent's position (1-9) under its icon, matching the `focus_agent` shortcuts.
 
 ## Notifications
 

@@ -669,22 +669,16 @@
           ]
         },
         {
-          "key": "ui.space_panel_row_gap",
-          "type": "boolean",
-          "default": "true",
-          "description": "Keep a blank row between workspaces in the spaces list. Worktree children of one project stay gapless regardless."
-        },
-        {
-          "key": "ui.agent_panel_row_gap",
-          "type": "boolean",
-          "default": "true",
-          "description": "Keep a blank row between agents in the agents list."
-        },
-        {
           "key": "ui.agent_panel_numbers",
           "type": "boolean",
           "default": "false",
           "description": "Show 1-based position numbers (1-9) under each agent's icon, matching the focus_agent indexed shortcuts."
+        },
+        {
+          "key": "ui.sidebar.agents.row_gap",
+          "type": "integer",
+          "default": "0",
+          "description": "Blank terminal rows between expanded Agent sidebar entries. Set to 1 to restore the previous spacing."
         },
         {
           "key": "ui.sidebar.agents.rows",
@@ -697,6 +691,12 @@
           "type": "table of token rows",
           "default": "{}",
           "description": "Complete Agent-row overrides keyed by strict canonical agent id. Agents without an override use ui.sidebar.agents.rows."
+        },
+        {
+          "key": "ui.sidebar.spaces.row_gap",
+          "type": "integer",
+          "default": "0",
+          "description": "Blank terminal rows between expanded Space sidebar entries. Set to 1 to restore the previous spacing. Consecutive indented worktree children remain packed as one group."
         },
         {
           "key": "ui.sidebar.spaces.rows",
@@ -998,7 +998,7 @@
           "key": "ui.sound.agents.maki",
           "type": "enum",
           "default": "\"default\"",
-          "description": "Sound override for detected MastraCode agents.",
+          "description": "Sound override for detected Maki agents.",
           "values": [
             "default",
             "on",
