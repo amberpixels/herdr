@@ -800,6 +800,12 @@
           ]
         },
         {
+          "key": "ui.agent_panel_numbers",
+          "type": "boolean",
+          "default": "false",
+          "description": "Show 1-based position numbers (1-9) under each agent's icon, matching the focus_agent indexed shortcuts."
+        },
+        {
           "key": "ui.status_indicators",
           "type": "enum",
           "default": "\"dots\"",
