@@ -2,81 +2,76 @@
 
 This file tracks intentional local changes applied on top of the vendored
 `libghostty-vt` source. Remove a patch only when the vendored source commit
-contains the upstream fix and the listed verification still passes.
+contains the upstream behavior and the listed verification still passes.
 
-## 0001 backport resizeCols cursor subtraction saturation
+## 0001 default lib-vt panes to grapheme clustering
 
 status: active
 
-patch: `vendor/patches/libghostty-vt/0001-backport-resizecols-cursor-subtraction.patch`
+patch: `vendor/patches/libghostty-vt/0001-default-grapheme-cluster-mode.patch`
 
-herdr issue: https://github.com/ogulcancelik/herdr/issues/465
+herdr issue: https://github.com/herdrdev/herdr/issues/243
 
-upstream discussion: https://github.com/ghostty-org/ghostty/discussions/12905
+upstream discussion: not opened; libghostty-vt currently exposes current mode mutation but no C API for configuring terminal default modes
 
-upstream pr: https://github.com/ghostty-org/ghostty/pull/12907
+upstream pr: not opened
 
-introduced upstream: `c44afa625`
-
-vendored base: `0f7cd84b880b203c98683e520e84b9db0c5938d8`
+vendored base: `c5a21edfcbc2d5b46540ad91b7980aca31f5f1f3`
 
 local files:
 
-- `vendor/libghostty-vt/src/terminal/PageList.zig`
 - `vendor/libghostty-vt/src/terminal/c/terminal.zig`
 
-reason: shrinking rows and columns in one resize can leave the pre-resize
-cursor row past the new row count. `PageList.resizeCols` then computed rows
-below the cursor with checked unsigned subtraction and aborted in safety builds.
+reason: Herdr renders terminal cells directly and requires DEC private mode
+2027 to store flags, ZWJ emoji, and other multi-codepoint grapheme clusters in
+one cell. This patch makes clustering active for new terminals and keeps it as
+the reset default so RIS (`ESC c`) does not disable it.
 
-remove when: the vendored source commit contains upstream PR #12907 and the
-local ReleaseSafe resize regression tests pass without this patch.
+remove when: libghostty-vt exposes a C API for setting default mode 2027, or
+upstream makes grapheme clustering the lib-vt default, and the reset-survival
+regression passes without this patch.
 
 verification:
 
 ```sh
-zig build test-lib-vt -Demit-lib-vt -Doptimize=ReleaseSafe -Dtest-filter="resize shrinks both axes with cursor at bottom"
-zig build test-lib-vt -Demit-lib-vt -Doptimize=ReleaseSafe -Dtest-filter="PageList resize less rows and cols cursor at bottom"
+cargo nextest run --locked grapheme_cluster_mode_is_default_and_survives_full_reset
+cargo nextest run --locked grapheme_cluster_mode_renders_flag_emoji_in_single_wide_cell
+cargo nextest run --locked grapheme_cluster_mode_renders_zwj_family_in_single_wide_cell
 ```
 
-## 0002 expose kitty image transmit time in the C API
+## 0002 expose modifyOtherKeys mode through terminal data
 
 status: active
 
-patch: `vendor/patches/libghostty-vt/0002-expose-kitty-image-transmit-time-ns.patch`
+patch: `vendor/patches/libghostty-vt/0002-expose-modify-other-keys-mode.patch`
 
-herdr issue: https://github.com/ogulcancelik/herdr/issues/947
+herdr issue: none; fixes the performance regression exposed by
+https://github.com/herdrdev/herdr/pull/2303
 
-upstream discussion: https://github.com/ghostty-org/ghostty/discussions/13177
-(proposes extending the kitty graphics inspection C API from
-https://github.com/ghostty-org/ghostty/pull/12145, which has no transmit
-time/serial accessor yet)
+upstream discussion: not opened
 
-introduced upstream: not yet
+upstream pr: not opened
 
-vendored base: `0f7cd84b880b203c98683e520e84b9db0c5938d8`
+vendored base: `c5a21edfcbc2d5b46540ad91b7980aca31f5f1f3`
 
 local files:
 
-- `vendor/libghostty-vt/include/ghostty/vt/kitty_graphics.h`
-- `vendor/libghostty-vt/src/terminal/c/kitty_graphics.zig`
+- `vendor/libghostty-vt/include/ghostty/vt/terminal.h`
+- `vendor/libghostty-vt/src/terminal/c/terminal.zig`
 
-reason: herdr fingerprints kitty image data to decide when to re-encode an
-image for render clients. Hashing the full payload on every render is too
-expensive for multi-megabyte images, and sampling windows misses small
-changes, freezing streaming sources. The image's transmit time already
-refreshes on every (re)transmission, so exposing it as
-`GHOSTTY_KITTY_IMAGE_DATA_TRANSMIT_TIME_NS` gives herdr an exact, O(1) change
-serial to invalidate a cached full-data fingerprint.
+reason: Herdr must know whether xterm modifyOtherKeys mode 2 is active to
+request printable key releases from the outer terminal. The formatter API can
+recover this fact only by formatting the active screen and scrollback. A typed
+terminal-data query exposes the authoritative scalar without formatting or
+allocation.
 
-remove when: the vendored source commit exposes the image transmit time (or an
-equivalent transmission serial) in the C API and
-`ghostty::tests::kitty_image_fingerprint_refreshes_on_retransmission` passes
-without this patch.
+remove when: the vendored source exposes an equivalent scalar query for
+modifyOtherKeys mode 2 and Herdr can use it without this patch.
 
 verification:
 
 ```sh
-zig build test-lib-vt -Dtest-filter="image_get transmit_time_ns changes on retransmission"
-cargo nextest run kitty_image_fingerprint
+cargo nextest run --locked modify_other_keys_query_tracks_mode_two
+cargo nextest run --locked host_report_all_supplies_printable_releases_for_event_type_only_panes
+python3 -m unittest scripts.test_vendor_libghostty_vt scripts.test_ui_hot_path_architecture
 ```
