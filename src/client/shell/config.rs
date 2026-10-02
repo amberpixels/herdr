@@ -124,6 +124,7 @@ impl ClientShellConfig {
             spaces: config.ui.sidebar.spaces.clone(),
             agents: config.ui.sidebar.agents.clone(),
             agent_panel_sort: config.ui.agent_panel_sort,
+            agent_panel_numbers: config.ui.agent_panel_numbers,
             status_indicators: config.ui.status_indicators,
             sound_enabled: config.ui.sound.enabled,
             toast_delivery: config.ui.toast.delivery,
@@ -326,6 +327,7 @@ impl ClientShellConfig {
                 self.spaces = ui.sidebar.spaces.clone();
                 self.agents = ui.sidebar.agents.clone();
                 self.agent_panel_sort = ui.agent_panel_sort;
+                self.agent_panel_numbers = ui.agent_panel_numbers;
                 self.status_indicators = ui.status_indicators;
                 self.sound_enabled = ui.sound.enabled;
                 self.toast_delivery = ui.toast.delivery;
@@ -457,6 +459,7 @@ mod tests {
         next.ui.sidebar_width = 31;
         next.ui.tab_bar_position = TabBarPositionConfig::Bottom;
         next.ui.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
+        next.ui.agent_panel_numbers = true;
         next.ui.status_indicators = crate::config::StatusIndicatorStyle::Symbols;
         next.ui.sidebar.agents = toml::from_str("rows = [[{ token = 'machine', rules = [{ equals = 'Local', bold = true }] }]]\nrow_gap = 2").unwrap();
         next.keys.prefix = crate::config::BindingConfig::one("ctrl+a");
@@ -474,6 +477,7 @@ mod tests {
             shell.status_indicators,
             crate::config::StatusIndicatorStyle::Symbols
         );
+        assert!(shell.agent_panel_numbers);
         assert_eq!(shell.agents.row_gap, 2);
         assert_eq!(
             shell.agents.rows[0][0]

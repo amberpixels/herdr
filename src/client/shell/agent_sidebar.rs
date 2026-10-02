@@ -80,9 +80,9 @@ pub(super) fn render_agent_panel(
         agent_scroll,
         hits,
         |row| row.rows.len(),
-        |buffer, rect, row, hits| {
+        |buffer, rect, position, row, hits| {
             hits.agents.push((rect, row.pane_id.clone()));
-            render_agent_row(buffer, rect, row, config);
+            render_agent_row(buffer, rect, row, Some(position), config);
         },
     );
 }
@@ -160,7 +160,7 @@ pub(super) fn render_agent_list<T>(
     agent_scroll: &mut usize,
     hits: &mut ShellHitMap,
     row_lines: impl Fn(&T) -> usize,
-    mut render_row: impl FnMut(&mut Buffer, Rect, &T, &mut ShellHitMap),
+    mut render_row: impl FnMut(&mut Buffer, Rect, usize, &T, &mut ShellHitMap),
 ) {
     let body = Rect::new(
         area.x,
@@ -217,7 +217,7 @@ pub(super) fn render_agent_list<T>(
             break;
         }
         let rect = Rect::new(body.x, y, content_width, height);
-        render_row(buffer, rect, row, hits);
+        render_row(buffer, rect, index, row, hits);
         y = y
             .saturating_add(height)
             .saturating_add(if index + 1 < rows.len() {
@@ -318,10 +318,13 @@ pub(super) fn agent_row(
     })
 }
 
+/// `position` is the row's 0-based index in the `focus_agent` ordering. When
+/// `ui.agent_panel_numbers` is on, positions 0-8 render as 1-9 under the icon.
 pub(super) fn render_agent_row(
     buffer: &mut Buffer,
     rect: Rect,
     row: &AgentRow,
+    position: Option<usize>,
     config: &ClientShellConfig,
 ) {
     let palette = &config.palette;
@@ -353,9 +356,26 @@ pub(super) fn render_agent_row(
     } else {
         row.rows.clone()
     };
+    let number = config
+        .agent_panel_numbers
+        .then_some(position)
+        .flatten()
+        .map(|position| position + 1)
+        .filter(|number| *number <= 9);
+    let number_style = if row.focused {
+        secondary
+    } else {
+        secondary.add_modifier(Modifier::DIM)
+    };
     for (index, tokens) in rows.iter().take(rect.height as usize).enumerate() {
         let indent = if index == 0 { 1 } else { 3 };
-        let mut spans = vec![ratatui::text::Span::raw(" ".repeat(indent))];
+        let prefix = match number {
+            Some(number) if index == 1 => {
+                ratatui::text::Span::styled(format!(" {number} "), number_style)
+            }
+            _ => ratatui::text::Span::raw(" ".repeat(indent)),
+        };
+        let mut spans = vec![prefix];
         spans.extend(crate::ui::resolved_token_spans(
             tokens,
             icon,

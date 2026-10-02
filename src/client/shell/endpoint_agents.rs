@@ -71,8 +71,11 @@ pub(super) fn render_expanded(
         agent_scroll,
         hits,
         |row| row.agent.rows.len(),
-        |buffer, rect, row, hits| {
-            super::agent_sidebar::render_agent_row(buffer, rect, &row.agent, config);
+        |buffer, rect, index, row, hits| {
+            // `focus_agent` indexes only online rows, so stale rows carry no number.
+            let position =
+                (!row.stale).then(|| rows[..index].iter().filter(|row| !row.stale).count());
+            super::agent_sidebar::render_agent_row(buffer, rect, &row.agent, position, config);
             if row.stale {
                 buffer.set_style(
                     rect,

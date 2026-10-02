@@ -650,6 +650,83 @@ fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
 }
 
 #[test]
+fn agent_sidebar_numbers_agents_under_their_icons_when_enabled() {
+    let mut projected = snapshot();
+    let mut second_pane = projected.panes[0].clone();
+    second_pane.pane_id = "pane_2".into();
+    second_pane.focused = false;
+    projected.panes.push(second_pane);
+    projected.agents = vec![
+        ClientShellAgent {
+            pane_id: "pane_1".into(),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            name: Some("pi one".into()),
+            display_agent: None,
+            agent: Some("pi".into()),
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: AgentStatus::Idle,
+            state_change_seq: 10,
+            state_labels: Vec::new(),
+            tokens: Vec::new(),
+            focused: true,
+        },
+        ClientShellAgent {
+            pane_id: "pane_2".into(),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            name: Some("pi two".into()),
+            display_agent: None,
+            agent: Some("pi".into()),
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: AgentStatus::Idle,
+            state_change_seq: 20,
+            state_labels: Vec::new(),
+            tokens: Vec::new(),
+            focused: false,
+        },
+    ];
+    let mut config = Config::default();
+    config.ui.sidebar.agents.rows = vec![
+        vec![
+            crate::config::AgentSidebarToken::StateIcon,
+            crate::config::AgentSidebarToken::Agent,
+        ],
+        vec![crate::config::AgentSidebarToken::StateText],
+    ];
+
+    let mut render = |numbers: bool| {
+        config.ui.agent_panel_numbers = numbers;
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+        state.set_snapshot(Box::new(projected.clone()));
+        state.set_pane_surface(surface());
+        let frame = state.compose(106, 30).expect("agent sidebar frame");
+        let rows = frame_rows(&frame);
+        state
+            .hits
+            .agents
+            .iter()
+            .map(|(rect, _)| rows[rect.y as usize + 1][..rect.width as usize].to_owned())
+            .collect::<Vec<_>>()
+    };
+
+    // The 1-based position sits on the row under the icon, where the plain
+    // layout keeps a three-column indent.
+    let numbered = render(true);
+    assert_eq!(numbered.len(), 2, "rows: {numbered:?}");
+    assert!(numbered[0].starts_with(" 1 idle"), "rows: {numbered:?}");
+    assert!(numbered[1].starts_with(" 2 idle"), "rows: {numbered:?}");
+
+    let plain = render(false);
+    assert!(plain[0].starts_with("   idle"), "rows: {plain:?}");
+    assert!(plain[1].starts_with("   idle"), "rows: {plain:?}");
+}
+
+#[test]
 fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
     let mut projected = snapshot();
     let mut second_pane = projected.panes[0].clone();
