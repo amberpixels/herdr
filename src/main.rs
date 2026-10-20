@@ -160,6 +160,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # previous_agent = ""     # optional, unset by default
 # next_agent = ""         # optional, unset by default
 # focus_agent = ""        # optional indexed binding, e.g. "prefix+alt+1..9"
+# focus_agent_two_digit = "prefix+0" # then type two digits, e.g. 1 2 for agent 12
 # remote_image_paste = "ctrl+v" # only active in herdr --remote; empty disables raw-key image paste
 # new_tab = "prefix+c"
 # rename_tab = "prefix+shift+t"
@@ -331,7 +332,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # "workspaces" is accepted as an alias for "spaces".
 # agent_panel_sort = "spaces"
 
-# Show the 1-9 position number under each agent's icon (matches focus_agent shortcuts).
+# Show each agent's position number next to its icon (matches focus_agent shortcuts).
 # agent_panel_numbers = false
 
 # Agent status indicators: "dots" preserves the compact color marks; "symbols" uses

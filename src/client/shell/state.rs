@@ -24,7 +24,7 @@ pub(crate) struct ClientShellConfig {
     pub(super) spaces: SpacesSidebarConfig,
     pub(super) agents: crate::config::AgentsSidebarConfig,
     pub(super) agent_panel_sort: crate::config::AgentPanelSortConfig,
-    /// Show 1-based position numbers (1-9) under agent icons. From `ui.agent_panel_numbers`.
+    /// Show 1-based position numbers (1-9) next to agent icons. From `ui.agent_panel_numbers`.
     pub(super) agent_panel_numbers: bool,
     pub(super) status_indicators: crate::config::StatusIndicatorStyle,
     pub(super) sound_enabled: bool,
@@ -276,6 +276,11 @@ pub(super) enum ClientShellMode {
     Navigate,
     Resize,
     Copy,
+    /// Collecting the two digits of a `focus_agent_two_digit` position; holds the
+    /// tens digit once typed.
+    AgentNumber {
+        first_digit: Option<usize>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1391,7 +1396,10 @@ impl ClientShellState {
             } else if active_keymap_changed
                 && matches!(
                     self.mode,
-                    ClientShellMode::Prefix | ClientShellMode::Navigate | ClientShellMode::Resize
+                    ClientShellMode::Prefix
+                        | ClientShellMode::Navigate
+                        | ClientShellMode::Resize
+                        | ClientShellMode::AgentNumber { .. }
                 )
             {
                 self.mode = ClientShellMode::Terminal;

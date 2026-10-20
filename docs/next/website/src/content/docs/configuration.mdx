@@ -185,6 +185,8 @@ switch_workspace = "prefix+shift+1..9"
 focus_agent = "prefix+alt+1..9"
 ```
 
+Agents past 9 use `focus_agent_two_digit`, default `prefix+0`. After it, type exactly two digits: `prefix+0 1 2` focuses agent 12 and `prefix+0 0 7` focuses agent 7. Any other key cancels.
+
 The legacy `[keys.indexed]` table is still parsed for compatibility, but new configs should prefer the explicit action fields.
 
 ## Custom command keybindings
@@ -479,7 +481,7 @@ Metadata reporters provide values only; styling stays in the local sidebar confi
 
 Sidebar row settings affect only the expanded desktop sidebar. Collapsed and mobile views keep their compact layouts.
 
-Set `agent_panel_numbers = true` to show each agent's position (1-9) under its icon, matching the `focus_agent` shortcuts.
+Set `agent_panel_numbers = true` to show each agent's position next to its icon, matching the `focus_agent` and `focus_agent_two_digit` shortcuts. With 10 or more agents, numbers take two cells and are right-aligned.
 
 ## Notifications
 

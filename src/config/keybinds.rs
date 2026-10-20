@@ -369,6 +369,7 @@ pub struct Keybinds {
     pub previous_agent: ActionKeybinds,
     pub next_agent: ActionKeybinds,
     pub focus_agent: Vec<IndexedKeybind>,
+    pub focus_agent_two_digit: ActionKeybinds,
     pub new_tab: ActionKeybinds,
     pub rename_tab: ActionKeybinds,
     pub previous_tab: ActionKeybinds,
@@ -552,6 +553,7 @@ impl Config {
             previous_agent: empty_action!(),
             next_agent: empty_action!(),
             focus_agent: Vec::new(),
+            focus_agent_two_digit: empty_action!(),
             new_tab: empty_action!(),
             rename_tab: empty_action!(),
             previous_tab: empty_action!(),
@@ -688,6 +690,11 @@ impl Config {
                 keybinds.focus_agent,
                 focus_agent,
                 &self.keys.indexed.agents,
+                source
+            );
+            apply_action!(
+                keybinds.focus_agent_two_digit,
+                focus_agent_two_digit,
                 source
             );
             apply_action!(keybinds.new_tab, new_tab, source);

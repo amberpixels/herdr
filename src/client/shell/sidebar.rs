@@ -709,16 +709,18 @@ pub(in crate::client::shell) fn render_workspace_rows(
         }
         let mut x = area.x;
         if entry.indented {
+            // Children sit two cells right of the parent; the connector lines up
+            // under the parent's state icon.
             let prefix = if row_index == 0 {
                 if entry.last_child {
-                    "   └─ "
+                    " └ "
                 } else {
-                    "   ├─ "
+                    " ├ "
                 }
             } else if entry.last_child {
-                "        "
+                "     "
             } else {
-                "   │    "
+                " │   "
             };
             x = put_segment(
                 buffer,

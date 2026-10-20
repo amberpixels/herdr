@@ -62,6 +62,8 @@ pub(super) fn render_expanded(
         return;
     }
     let rows = agent_rows(endpoints, active_endpoint_id, config);
+    let number_width =
+        super::agent_sidebar::agent_number_width(rows.iter().filter(|row| !row.stale).count());
     super::agent_sidebar::render_agent_list(
         buffer,
         area,
@@ -75,7 +77,14 @@ pub(super) fn render_expanded(
             // `focus_agent` indexes only online rows, so stale rows carry no number.
             let position =
                 (!row.stale).then(|| rows[..index].iter().filter(|row| !row.stale).count());
-            super::agent_sidebar::render_agent_row(buffer, rect, &row.agent, position, config);
+            super::agent_sidebar::render_agent_row(
+                buffer,
+                rect,
+                &row.agent,
+                position,
+                number_width,
+                config,
+            );
             if row.stale {
                 buffer.set_style(
                     rect,

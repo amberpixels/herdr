@@ -121,6 +121,18 @@ pub(super) fn render_mode_bar(
                     (" done".to_owned(), base),
                 ]);
             }
+            ClientShellMode::AgentNumber { first_digit } => {
+                let typed =
+                    first_digit.map_or_else(|| "__".to_owned(), |digit| format!("{digit}_"));
+                segments.extend([
+                    (" AGENT ".to_owned(), mode_style),
+                    (format!(" {typed}  "), base),
+                    ("0-9".to_owned(), key),
+                    (" two digits  ".to_owned(), base),
+                    ("esc".to_owned(), key),
+                    (" cancel".to_owned(), base),
+                ]);
+            }
             ClientShellMode::Copy => {
                 let copy_mode = copy_mode?;
                 if let Some(prompt) = copy_mode.search_prompt.as_ref() {

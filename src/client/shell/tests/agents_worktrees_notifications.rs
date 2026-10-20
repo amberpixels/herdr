@@ -131,7 +131,7 @@ fn grouped_worktrees_render_parent_branch_and_indented_child() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(text.contains("main"));
-    assert!(text.contains("└─"));
+    assert!(text.contains(" └ "));
     assert!(text.contains("feature"));
 
     let mut replacement = (**state.snapshot.as_ref().expect("snapshot")).clone();
@@ -650,7 +650,7 @@ fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
 }
 
 #[test]
-fn agent_sidebar_numbers_agents_under_their_icons_when_enabled() {
+fn agent_sidebar_numbers_agents_next_to_their_icons_when_enabled() {
     let mut projected = snapshot();
     let mut second_pane = projected.panes[0].clone();
     second_pane.pane_id = "pane_2".into();
@@ -710,20 +710,131 @@ fn agent_sidebar_numbers_agents_under_their_icons_when_enabled() {
             .hits
             .agents
             .iter()
-            .map(|(rect, _)| rows[rect.y as usize + 1][..rect.width as usize].to_owned())
+            .map(|(rect, _)| {
+                let first = rows[rect.y as usize][..rect.width as usize].to_owned();
+                let second = rows[rect.y as usize + 1][..rect.width as usize].to_owned();
+                (first, second)
+            })
             .collect::<Vec<_>>()
     };
 
-    // The 1-based position sits on the row under the icon, where the plain
-    // layout keeps a three-column indent.
+    // The 1-based position follows the state icon on the first row; the row
+    // under the icon keeps its plain three-column indent.
     let numbered = render(true);
     assert_eq!(numbered.len(), 2, "rows: {numbered:?}");
-    assert!(numbered[0].starts_with(" 1 idle"), "rows: {numbered:?}");
-    assert!(numbered[1].starts_with(" 2 idle"), "rows: {numbered:?}");
+    assert!(numbered[0].0.starts_with(" ○ 1 pi"), "rows: {numbered:?}");
+    assert!(numbered[1].0.starts_with(" ○ 2 pi"), "rows: {numbered:?}");
+    assert!(numbered[0].1.starts_with("   idle"), "rows: {numbered:?}");
 
     let plain = render(false);
-    assert!(plain[0].starts_with("   idle"), "rows: {plain:?}");
-    assert!(plain[1].starts_with("   idle"), "rows: {plain:?}");
+    assert!(plain[0].0.starts_with(" ○ pi"), "rows: {plain:?}");
+    assert!(plain[1].0.starts_with(" ○ pi"), "rows: {plain:?}");
+    assert!(plain[0].1.starts_with("   idle"), "rows: {plain:?}");
+}
+
+fn numbered_agents_snapshot(count: usize) -> ClientShellSnapshot {
+    let mut projected = snapshot();
+    let template = projected.panes[0].clone();
+    projected.panes = (1..=count)
+        .map(|number| {
+            let mut pane = template.clone();
+            pane.pane_id = format!("pane_{number}");
+            pane.focused = number == 1;
+            pane
+        })
+        .collect();
+    projected.focused_pane_id = Some("pane_1".into());
+    projected.agents = (1..=count)
+        .map(|number| ClientShellAgent {
+            pane_id: format!("pane_{number}"),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            name: Some(format!("pi {number}")),
+            display_agent: None,
+            agent: Some("pi".into()),
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: AgentStatus::Idle,
+            state_change_seq: number as u64,
+            state_labels: Vec::new(),
+            tokens: Vec::new(),
+            focused: number == 1,
+        })
+        .collect();
+    projected
+}
+
+#[test]
+fn agent_sidebar_right_aligns_two_digit_numbers() {
+    let mut config = Config::default();
+    config.ui.agent_panel_numbers = true;
+    config.ui.sidebar.agents.rows = vec![vec![
+        crate::config::AgentSidebarToken::StateIcon,
+        crate::config::AgentSidebarToken::Agent,
+    ]];
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    state.set_snapshot(Box::new(numbered_agents_snapshot(11)));
+    state.set_pane_surface(surface());
+    let frame = state.compose(106, 60).expect("agent sidebar frame");
+    let rows = frame_rows(&frame);
+    let numbered = state
+        .hits
+        .agents
+        .iter()
+        .map(|(rect, _)| rows[rect.y as usize][..rect.width as usize].to_owned())
+        .collect::<Vec<_>>();
+
+    // With ten or more agents every number takes two cells, so names stay in one column.
+    assert_eq!(numbered.len(), 11, "rows: {numbered:?}");
+    assert!(numbered[0].starts_with(" ○  1 pi"), "rows: {numbered:?}");
+    assert!(numbered[8].starts_with(" ○  9 pi"), "rows: {numbered:?}");
+    assert!(numbered[9].starts_with(" ○ 10 pi"), "rows: {numbered:?}");
+    assert!(numbered[10].starts_with(" ○ 11 pi"), "rows: {numbered:?}");
+}
+
+#[test]
+fn two_digit_agent_binding_focuses_agents_past_nine() {
+    let focused_pane = |outcome: &ClientShellInput| match &outcome.actions[..] {
+        [ClientShellAction::Endpoint { request, .. }] => match &request.method {
+            crate::api::schema::Method::PaneFocus(target) => Some(target.pane_id.clone()),
+            _ => None,
+        },
+        _ => None,
+    };
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(numbered_agents_snapshot(12)));
+
+    // Default prefix is ctrl+b; prefix+0 waits for exactly two digits.
+    assert!(state.handle_input_bytes(b"\x020").actions.is_empty());
+    assert_eq!(
+        state.mode,
+        ClientShellMode::AgentNumber { first_digit: None }
+    );
+    assert!(state.handle_input_bytes(b"1").actions.is_empty());
+    assert_eq!(
+        state.mode,
+        ClientShellMode::AgentNumber {
+            first_digit: Some(1)
+        }
+    );
+    let eleven = state.handle_input_bytes(b"1");
+    assert_eq!(focused_pane(&eleven).as_deref(), Some("pane_11"));
+    assert_eq!(state.mode, ClientShellMode::Terminal);
+
+    let seven = state.handle_input_bytes(b"\x02007");
+    assert_eq!(focused_pane(&seven).as_deref(), Some("pane_7"));
+
+    // "00", positions past the last agent, and non-digits focus nothing.
+    for keys in [&b"\x02000"[..], b"\x02042", b"\x020x", b"\x0201\x1b"] {
+        let outcome = state.handle_input_bytes(keys);
+        assert!(
+            outcome.actions.is_empty(),
+            "keys {keys:?}: {:?}",
+            outcome.actions
+        );
+        assert_eq!(state.mode, ClientShellMode::Terminal, "keys {keys:?}");
+    }
 }
 
 #[test]

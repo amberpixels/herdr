@@ -626,6 +626,12 @@
           "description": "Focus an agent by index 1-9. Unset by default."
         },
         {
+          "key": "keys.focus_agent_two_digit",
+          "type": "keybinding",
+          "default": "\"prefix+0\"",
+          "description": "Focus an agent by the two-digit position typed next (01-99), for agents past 9."
+        },
+        {
           "key": "keys.remote_image_paste",
           "type": "string",
           "default": "\"ctrl+v\"",
@@ -1048,7 +1054,7 @@
           "key": "ui.agent_panel_numbers",
           "type": "boolean",
           "default": "false",
-          "description": "Show 1-based position numbers (1-9) under each agent's icon, matching the focus_agent indexed shortcuts."
+          "description": "Show 1-based position numbers next to each agent's icon, matching the focus_agent and focus_agent_two_digit shortcuts."
         },
         {
           "key": "ui.status_indicators",
