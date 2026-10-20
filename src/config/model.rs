@@ -114,6 +114,9 @@ pub enum StatusIndicatorStyle {
     #[default]
     Dots,
     Symbols,
+    /// Each row's `icon` token (a project icon) colored by state, falling back to
+    /// dots for rows without one.
+    Projects,
 }
 
 impl StatusIndicatorStyle {
@@ -121,6 +124,7 @@ impl StatusIndicatorStyle {
         match self {
             Self::Dots => "dots",
             Self::Symbols => "symbols",
+            Self::Projects => "projects",
         }
     }
 }
@@ -1005,7 +1009,7 @@ pub struct UiConfig {
     /// Retired setting that Herdr wrote before the workspace filter was removed.
     #[serde(rename = "agent_panel_scope")]
     _legacy_agent_panel_scope: Option<LegacyAgentPanelScopeConfig>,
-    /// Agent status indicator style. Saved values are "dots" or "symbols". Default: "dots".
+    /// Agent status indicator style. Saved values are "dots", "symbols", or "projects". Default: "dots".
     pub status_indicators: StatusIndicatorStyle,
     /// Expanded sidebar row composition.
     pub sidebar: SidebarConfig,
@@ -1501,6 +1505,19 @@ status_indicators = "symbols"
         )
         .unwrap();
         assert_eq!(config.ui.status_indicators, StatusIndicatorStyle::Symbols);
+    }
+
+    #[test]
+    fn status_indicator_style_parses_projects() {
+        let config: Config = toml::from_str(
+            r#"
+[ui]
+status_indicators = "projects"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.ui.status_indicators, StatusIndicatorStyle::Projects);
+        assert_eq!(StatusIndicatorStyle::Projects.as_str(), "projects");
     }
 
     #[test]

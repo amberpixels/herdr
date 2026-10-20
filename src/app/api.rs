@@ -72,14 +72,42 @@ impl App {
         } else {
             self.last_git_remote_status_refresh = Instant::now();
         }
+        let identities = self.workspace_git_identities();
         let changed = self
             .state
             .apply_workspace_git_statuses(&self.terminal_runtimes, results);
         if changed {
             self.render_dirty.request_generic();
             self.render_notify.notify_one();
+            // A shell that changes directory renames its workspace and may move it
+            // to another repo without any other event, so tell subscribers here.
+            let renamed = self
+                .workspace_git_identities()
+                .into_iter()
+                .enumerate()
+                .filter(|(ws_idx, identity)| identities.get(*ws_idx) != Some(identity))
+                .map(|(ws_idx, _)| ws_idx)
+                .collect::<Vec<_>>();
+            for ws_idx in renamed {
+                self.emit_workspace_updated(ws_idx);
+            }
         }
         changed
+    }
+
+    fn workspace_git_identities(&self) -> Vec<(String, Option<String>)> {
+        self.state
+            .workspaces
+            .iter()
+            .map(|ws| {
+                (
+                    ws.cached_auto_label.clone(),
+                    ws.cached_git_space
+                        .as_ref()
+                        .map(|space| space.checkout_key.clone()),
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn handle_internal_event(&mut self, ev: AppEvent) {

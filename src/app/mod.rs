@@ -1203,6 +1203,55 @@ mod tests {
     }
 
     #[test]
+    fn git_status_event_reports_repo_and_emits_workspace_updated_on_repo_change() {
+        let mut app = test_app();
+        app.state.workspaces.push(Workspace::test_new("one"));
+        let workspace_id = app.state.workspaces[0].id.clone();
+        let resolved_identity_cwd = app.state.workspaces[0].resolved_identity_cwd().unwrap();
+        let status = |space| crate::workspace::WorkspaceGitStatus {
+            workspace_id: workspace_id.clone(),
+            resolved_identity_cwd: resolved_identity_cwd.clone(),
+            status_cache_key: resolved_identity_cwd.clone(),
+            demand: crate::workspace::GitStatusRefreshDemand::ALL,
+            auto_label: "one".into(),
+            branch: None,
+            ahead_behind: None,
+            space,
+        };
+        let space = crate::workspace::GitSpaceMetadata {
+            key: "/code/orchard/.git".into(),
+            checkout_key: "/code/orchard.ORC-1".into(),
+            repo_name: "orchard".into(),
+            repo_root: "/code/orchard.ORC-1".into(),
+            is_linked_worktree: true,
+        };
+        let updated_events = |app: &App| {
+            app.event_hub
+                .events_after(0)
+                .iter()
+                .filter(|(_, event)| event.event == crate::api::schema::EventKind::WorkspaceUpdated)
+                .count()
+        };
+
+        app.handle_internal_event(AppEvent::GitStatusRefreshed {
+            results: vec![status(Some(space.clone()))],
+            cache_updates: Vec::new(),
+        });
+        assert_eq!(updated_events(&app), 1);
+        let repo = app.workspace_info(0).repo.expect("repo info");
+        assert_eq!(repo.repo_name, "orchard");
+        assert_eq!(repo.repo_root, "/code/orchard");
+        assert_eq!(repo.checkout_path, "/code/orchard.ORC-1");
+        assert!(repo.is_linked_worktree);
+
+        app.handle_internal_event(AppEvent::GitStatusRefreshed {
+            results: vec![status(Some(space))],
+            cache_updates: Vec::new(),
+        });
+        assert_eq!(updated_events(&app), 1, "an unchanged repo emits nothing");
+    }
+
+    #[test]
     fn notification_show_api_creates_herdr_toast_with_position() {
         let mut app = test_app();
         app.state.toast_config.delivery = crate::config::ToastDelivery::Herdr;

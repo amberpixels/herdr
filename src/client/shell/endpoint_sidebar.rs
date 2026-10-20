@@ -472,7 +472,7 @@ pub(super) fn render_expanded(
                     buffer,
                     nested,
                     status,
-                    config.status_indicators,
+                    super::row_status_icon(status, config.status_indicators, &workspace.tokens),
                     entry,
                     tokens,
                     endpoint_active && workspace.focused,

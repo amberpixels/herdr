@@ -94,6 +94,21 @@ pub struct WorkspaceInfo {
     pub tokens: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<WorkspaceWorktreeInfo>,
+    /// The git repo the workspace's current directory is in, for every
+    /// workspace, not only those opened as worktrees.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<WorkspaceRepoInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct WorkspaceRepoInfo {
+    /// Name of the main repo, shared by all of its linked worktrees.
+    pub repo_name: String,
+    /// Root of the main repo checkout, shared by all of its linked worktrees.
+    pub repo_root: String,
+    /// Root of the checkout the workspace is in.
+    pub checkout_path: String,
+    pub is_linked_worktree: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

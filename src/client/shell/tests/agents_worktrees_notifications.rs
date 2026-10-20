@@ -1870,3 +1870,63 @@ fn semantic_notifications_use_client_policy_and_stable_navigation_targets() {
     assert!(state.visible_notification.is_none());
     assert_eq!(state.pending_notifications.len(), 1);
 }
+
+#[test]
+fn projects_indicators_draw_icon_tokens_in_state_color_with_dot_fallback() {
+    let mut projected = snapshot();
+    projected.workspaces[0]
+        .tokens
+        .push(("icon".into(), "@".into()));
+    let mut second_pane = projected.panes[0].clone();
+    second_pane.pane_id = "pane_2".into();
+    second_pane.focused = false;
+    projected.panes.push(second_pane);
+    let agent = |pane_id: &str, name: &str, status, tokens| ClientShellAgent {
+        pane_id: pane_id.into(),
+        workspace_id: "ws_1".into(),
+        tab_id: "tab_1".into(),
+        name: Some(name.into()),
+        display_agent: None,
+        agent: Some("pi".into()),
+        title: None,
+        terminal_title: None,
+        terminal_title_stripped: None,
+        agent_status: status,
+        state_change_seq: 1,
+        state_labels: Vec::new(),
+        tokens,
+        focused: false,
+    };
+    projected.agents = vec![
+        agent(
+            "pane_1",
+            "iconic",
+            AgentStatus::Working,
+            vec![("icon".into(), "@".into())],
+        ),
+        agent("pane_2", "plain", AgentStatus::Idle, Vec::new()),
+    ];
+    let mut config = Config::default();
+    config.ui.status_indicators = crate::config::StatusIndicatorStyle::Projects;
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    state.set_snapshot(Box::new(projected));
+    state.set_pane_surface(surface());
+
+    let frame = state.compose(106, 30).expect("sidebar frame");
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    // Default agent rows put the state icon before the workspace name.
+    assert!(text.contains("@ client-shell"), "frame: {text}");
+    assert!(text.contains("○ client-shell"), "frame: {text}");
+    // One icon on the space row and one on the agent row.
+    let icons = frame.cells.iter().filter(|cell| cell.symbol == "@").count();
+    assert_eq!(icons, 2, "frame: {text}");
+}

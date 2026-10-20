@@ -183,17 +183,42 @@ fn status_icon(
     use crate::config::StatusIndicatorStyle;
     match (style, status) {
         (
-            StatusIndicatorStyle::Dots,
+            StatusIndicatorStyle::Dots | StatusIndicatorStyle::Projects,
             AgentStatus::Working | AgentStatus::Blocked | AgentStatus::Done,
         ) => "●",
-        (StatusIndicatorStyle::Dots, AgentStatus::Idle) => "○",
-        (StatusIndicatorStyle::Dots, AgentStatus::Unknown) => "·",
+        (StatusIndicatorStyle::Dots | StatusIndicatorStyle::Projects, AgentStatus::Idle) => "○",
+        (StatusIndicatorStyle::Dots | StatusIndicatorStyle::Projects, AgentStatus::Unknown) => "·",
         (StatusIndicatorStyle::Symbols, AgentStatus::Blocked) => "×",
         (StatusIndicatorStyle::Symbols, AgentStatus::Working) => "◐",
         (StatusIndicatorStyle::Symbols, AgentStatus::Done) => "✓",
         (StatusIndicatorStyle::Symbols, AgentStatus::Idle) => "○",
         (StatusIndicatorStyle::Symbols, AgentStatus::Unknown) => "·",
     }
+}
+
+/// Token a plugin reports to give a row its project icon.
+const PROJECT_ICON_TOKEN: &str = "icon";
+
+/// The state icon for a sidebar row: in the `projects` style, the row's `icon`
+/// token when it has one, otherwise the style's own glyph.
+fn row_status_icon(
+    status: crate::api::schema::AgentStatus,
+    style: crate::config::StatusIndicatorStyle,
+    tokens: &[(String, String)],
+) -> &str {
+    if style == crate::config::StatusIndicatorStyle::Projects {
+        if let Some(icon) = project_icon(tokens) {
+            return icon;
+        }
+    }
+    status_icon(status, style)
+}
+
+fn project_icon(tokens: &[(String, String)]) -> Option<&str> {
+    tokens
+        .iter()
+        .find(|(name, value)| name == PROJECT_ICON_TOKEN && !value.trim().is_empty())
+        .map(|(_, value)| value.trim())
 }
 
 fn status_dot(status: crate::api::schema::AgentStatus) -> &'static str {

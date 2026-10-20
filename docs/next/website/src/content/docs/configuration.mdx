@@ -361,6 +361,8 @@ status_indicators = "symbols"
 
 The symbols are static, so this option does not enable spinner animation.
 
+To mark each space and agent with its project instead, choose **project icons** or set `status_indicators = "projects"`. A row's indicator then shows the row's `icon` token, a single glyph a plugin reports with `workspace.report_metadata` or `pane.report_metadata`, in the state color. Rows without an `icon` token keep the colored dots. To give every workspace in a repo the same icon, a plugin can match on the `repo` field that `workspace.list` reports for every workspace inside a git checkout. When a shell changes directory, the field follows on the next sidebar git refresh, and Herdr sends `workspace.updated`. That refresh runs while a client is attached and the spaces rows show `branch` or `git_status`.
+
 ### Sidebar row layouts
 
 The expanded desktop sidebar renders each inner array in `rows` as one line. These are the complete default layouts:

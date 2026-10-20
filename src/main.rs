@@ -341,7 +341,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # agent_panel_numbers = false
 
 # Agent status indicators: "dots" preserves the compact color marks; "symbols" uses
-# distinct static glyphs for blocked, working, done, idle, and unknown states.
+# distinct static glyphs for blocked, working, done, idle, and unknown states;
+# "projects" shows each row's `icon` token (set by a plugin) in the state color,
+# and dots for rows without one.
 # status_indicators = "dots"
 
 # Accent color for highlights, borders, and navigation UI.
