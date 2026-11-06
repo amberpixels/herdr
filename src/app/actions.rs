@@ -1099,7 +1099,7 @@ fn url_at_byte(text: &str, clicked_byte: usize) -> Option<String> {
     let range = url_byte_range(text, clicked_byte)?;
     let link = text.get(range)?;
     if link.starts_with('/') {
-        return Some(markdown_path_url(link));
+        return Some(path_file_url(link));
     }
     Some(link.to_owned())
 }
@@ -1111,32 +1111,29 @@ pub(super) fn url_byte_range(text: &str, clicked_byte: usize) -> Option<std::ops
         let start = byte_index_for_cell(text, span.start);
         let end = byte_index_after_cell(text, span.end);
         let url = text.get(start..end)?;
-        let linked =
-            safe_web_url(url).is_some() || (url.starts_with("file://") && is_markdown_path(url));
+        let linked = safe_web_url(url).is_some()
+            || url
+                .strip_prefix("file://")
+                .is_some_and(|path| std::path::Path::new(path).exists());
         return linked.then_some(start..end);
     }
-    let span = markdown_path_span_at_column(&cells, clicked_idx)?;
+    let span = local_path_span_at_column(&cells, clicked_idx)?;
     Some(byte_index_for_cell(text, span.start)..byte_index_after_cell(text, span.end))
 }
 
 // Fork: agents relay output as plain text, so an OSC 8 file link never survives;
-// a bare absolute markdown path stands in for it and goes to the plugin link
-// handlers as file://. Only markdown, so paths with no handler are not underlined.
-fn markdown_path_span_at_column(cells: &[TextCell], clicked_idx: usize) -> Option<CellSpan> {
+// a bare absolute path stands in for it and goes to the plugin link handlers as
+// file://. Only a path that exists on disk, so stray slash-words stay unlinked.
+fn local_path_span_at_column(cells: &[TextCell], clicked_idx: usize) -> Option<CellSpan> {
     let span = token_span_at_column(cells, clicked_idx)?;
     let token: String = cells[span.start..=span.end]
         .iter()
         .map(|cell| cell.ch)
         .collect();
-    (token.starts_with('/') && is_markdown_path(&token)).then_some(span)
+    (token.starts_with('/') && std::path::Path::new(&token).exists()).then_some(span)
 }
 
-fn is_markdown_path(path: &str) -> bool {
-    let lower = path.to_ascii_lowercase();
-    lower.ends_with(".md") || lower.ends_with(".markdown")
-}
-
-fn markdown_path_url(path: &str) -> String {
+fn path_file_url(path: &str) -> String {
     let mut url = String::from("file://");
     for ch in path.chars() {
         match ch {
@@ -2604,23 +2601,45 @@ mod tests {
     }
 
     #[test]
-    fn url_at_byte_links_file_urls_and_absolute_markdown_paths() {
+    fn url_at_byte_links_file_urls_and_existing_absolute_paths() {
+        let dir = std::env::temp_dir().join(format!("herdr-links-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("FT-1.1")).unwrap();
+        for name in ["FT-1.md", "notes", "main.go", "a+b#1.MD"] {
+            std::fs::write(dir.join(name), "x").unwrap();
+        }
+        let root = dir.to_str().unwrap();
+
+        let row = format!("open file://{root}/FT-1.md.");
         assert_eq!(
-            selected_url("open file:///tmp/report.md.", "tmp").as_deref(),
-            Some("file:///tmp/report.md")
+            selected_url(&row, "FT-1"),
+            Some(format!("file://{root}/FT-1.md"))
         );
+        let row = format!("open file://{root}/notes");
         assert_eq!(
-            selected_url("plan:     /repo/.f10/plans/FT-1.md", "plans").as_deref(),
-            Some("file:///repo/.f10/plans/FT-1.md")
+            selected_url(&row, "notes"),
+            Some(format!("file://{root}/notes"))
         );
+        assert_eq!(selected_url("open file:///no/such/report", "report"), None);
+        for name in ["FT-1.md", "notes", "main.go", "FT-1.1"] {
+            let row = format!("plan:     {root}/{name}");
+            assert_eq!(
+                selected_url(&row, name),
+                Some(format!("file://{root}/{name}")),
+                "{name}"
+            );
+        }
+        let row = format!("see ({root}/a+b#1.MD), next");
         assert_eq!(
-            selected_url("see (/repo/a+b#1.MD), next", "repo").as_deref(),
-            Some("file:///repo/a%2Bb%231.MD")
+            selected_url(&row, "a+b"),
+            Some(format!("file://{root}/a%2Bb%231.MD"))
         );
-        assert_eq!(selected_url("plan: /repo/main.rs", "repo"), None);
-        assert_eq!(selected_url("open file:///tmp/report", "tmp"), None);
+        let row = format!("plan: {root}/missing.md");
+        assert_eq!(selected_url(&row, "missing"), None);
         assert_eq!(selected_url("plan: repo/FT-1.md", "repo"), None);
-        assert_eq!(selected_url("plan: /repo/FT-1.md", "plan"), None);
+        let row = format!("plan: {root}/FT-1.md");
+        assert_eq!(selected_url(&row, "plan"), None);
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
