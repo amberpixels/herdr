@@ -1044,9 +1044,7 @@ impl AppState {
 pub(super) fn url_from_link_target(target: crate::ghostty::LinkTarget) -> Option<String> {
     match target {
         crate::ghostty::LinkTarget::Uri(uri) => Some(uri),
-        crate::ghostty::LinkTarget::Text { text, clicked_byte } => {
-            url_at_byte(&text, clicked_byte).map(str::to_owned)
-        }
+        crate::ghostty::LinkTarget::Text { text, clicked_byte } => url_at_byte(&text, clicked_byte),
     }
 }
 
@@ -1097,19 +1095,56 @@ pub(crate) fn word_bounds_at_column(row: &str, col: u16) -> Option<(u16, u16)> {
     Some(span.columns(&cells))
 }
 
-fn url_at_byte(text: &str, clicked_byte: usize) -> Option<&str> {
+fn url_at_byte(text: &str, clicked_byte: usize) -> Option<String> {
     let range = url_byte_range(text, clicked_byte)?;
-    text.get(range)
+    let link = text.get(range)?;
+    if link.starts_with('/') {
+        return Some(markdown_path_url(link));
+    }
+    Some(link.to_owned())
 }
 
 pub(super) fn url_byte_range(text: &str, clicked_byte: usize) -> Option<std::ops::Range<usize>> {
     let clicked_idx = text.get(..clicked_byte)?.chars().count();
     let cells = text_cells(text);
-    let span = url_span_at_column(&cells, clicked_idx)?;
-    let start = byte_index_for_cell(text, span.start);
-    let end = byte_index_after_cell(text, span.end);
-    safe_web_url(text.get(start..end)?)?;
-    Some(start..end)
+    if let Some(span) = url_span_at_column(&cells, clicked_idx) {
+        let start = byte_index_for_cell(text, span.start);
+        let end = byte_index_after_cell(text, span.end);
+        let url = text.get(start..end)?;
+        let linked =
+            safe_web_url(url).is_some() || (url.starts_with("file://") && is_markdown_path(url));
+        return linked.then_some(start..end);
+    }
+    let span = markdown_path_span_at_column(&cells, clicked_idx)?;
+    Some(byte_index_for_cell(text, span.start)..byte_index_after_cell(text, span.end))
+}
+
+// Fork: agents relay output as plain text, so an OSC 8 file link never survives;
+// a bare absolute markdown path stands in for it and goes to the plugin link
+// handlers as file://. Only markdown, so paths with no handler are not underlined.
+fn markdown_path_span_at_column(cells: &[TextCell], clicked_idx: usize) -> Option<CellSpan> {
+    let span = token_span_at_column(cells, clicked_idx)?;
+    let token: String = cells[span.start..=span.end]
+        .iter()
+        .map(|cell| cell.ch)
+        .collect();
+    (token.starts_with('/') && is_markdown_path(&token)).then_some(span)
+}
+
+fn is_markdown_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".md") || lower.ends_with(".markdown")
+}
+
+fn markdown_path_url(path: &str) -> String {
+    let mut url = String::from("file://");
+    for ch in path.chars() {
+        match ch {
+            '%' | '+' | '?' | '#' => url.push_str(&format!("%{:02X}", ch as u32)),
+            _ => url.push(ch),
+        }
+    }
+    url
 }
 
 fn token_span_at_column(cells: &[TextCell], clicked_idx: usize) -> Option<CellSpan> {
@@ -1177,6 +1212,7 @@ fn url_span_at_column(cells: &[TextCell], clicked_idx: usize) -> Option<CellSpan
     while start < cells.len() {
         if starts_with_chars(&cells[start..], "http://")
             || starts_with_chars(&cells[start..], "https://")
+            || starts_with_chars(&cells[start..], "file://")
         {
             let mut end = start;
             while end + 1 < cells.len() && !cells[end + 1].ch.is_whitespace() {
@@ -2183,7 +2219,7 @@ mod tests {
         Some(text_in_cell_range(row, start, end))
     }
 
-    fn selected_url<'a>(row: &'a str, click: &str) -> Option<&'a str> {
+    fn selected_url(row: &str, click: &str) -> Option<String> {
         url_at_byte(row, row.find(click)?)
     }
 
@@ -2553,18 +2589,38 @@ mod tests {
     #[test]
     fn url_at_byte_returns_safe_visible_url_only() {
         assert_eq!(
-            selected_url("see https://example.com/a(b)c.", "example"),
+            selected_url("see https://example.com/a(b)c.", "example").as_deref(),
             Some("https://example.com/a(b)c")
         );
         assert_eq!(
-            selected_url("[docs](https://example.com/docs),", "example"),
+            selected_url("[docs](https://example.com/docs),", "example").as_deref(),
             Some("https://example.com/docs")
         );
         assert_eq!(
             selected_url("[docs](https://example.com/docs)", "docs"),
             None
         );
-        assert_eq!(selected_url("open file:///tmp/report", "file"), None);
+        assert_eq!(selected_url("open ftp://host/report", "host"), None);
+    }
+
+    #[test]
+    fn url_at_byte_links_file_urls_and_absolute_markdown_paths() {
+        assert_eq!(
+            selected_url("open file:///tmp/report.md.", "tmp").as_deref(),
+            Some("file:///tmp/report.md")
+        );
+        assert_eq!(
+            selected_url("plan:     /repo/.f10/plans/FT-1.md", "plans").as_deref(),
+            Some("file:///repo/.f10/plans/FT-1.md")
+        );
+        assert_eq!(
+            selected_url("see (/repo/a+b#1.MD), next", "repo").as_deref(),
+            Some("file:///repo/a%2Bb%231.MD")
+        );
+        assert_eq!(selected_url("plan: /repo/main.rs", "repo"), None);
+        assert_eq!(selected_url("open file:///tmp/report", "tmp"), None);
+        assert_eq!(selected_url("plan: repo/FT-1.md", "repo"), None);
+        assert_eq!(selected_url("plan: /repo/FT-1.md", "plan"), None);
     }
 
     #[test]

@@ -162,6 +162,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # previous_agent = ""     # optional, unset by default
 # next_agent = ""         # optional, unset by default
 # focus_agent = ""        # optional indexed binding, e.g. "prefix+alt+1..9"
+# focus_agent_two_digit = "prefix+0" # then type two digits, e.g. 1 2 for agent 12
 # remote_image_paste = "ctrl+v" # only active in herdr --remote; empty disables raw-key image paste
 # new_tab = "prefix+c"
 # rename_tab = "prefix+shift+t"
@@ -336,8 +337,13 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # "workspaces" is accepted as an alias for "spaces".
 # agent_panel_sort = "spaces"
 
+# Show each agent's position number next to its icon (matches focus_agent shortcuts).
+# agent_panel_numbers = false
+
 # Agent status indicators: "dots" preserves the compact color marks; "symbols" uses
-# distinct static glyphs for blocked, working, done, idle, and unknown states.
+# distinct static glyphs for blocked, working, done, idle, and unknown states;
+# "projects" shows each row's `icon` token (set by a plugin) in the state color,
+# and dots for rows without one.
 # status_indicators = "dots"
 
 # Accent color for highlights, borders, and navigation UI.

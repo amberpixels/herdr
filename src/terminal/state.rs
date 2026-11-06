@@ -2224,12 +2224,7 @@ impl TerminalState {
             return true;
         }
         if managed.phase == ManagedAgentPhase::Blocked {
-            if known_agent == Some(managed.kind)
-                && (self.state == AgentState::Idle
-                    || managed.kind == Agent::Codex
-                        && self.state == AgentState::Unknown
-                        && self.codex_prompt_ready)
-            {
+            if self.managed_agent_launched(managed.kind, known_agent) {
                 self.managed_agent = Some(ManagedAgent {
                     kind: managed.kind,
                     phase: ManagedAgentPhase::Active,
@@ -2257,12 +2252,7 @@ impl TerminalState {
                 return true;
             }
             if ready_after.is_none_or(|ready_after| now >= ready_after) {
-                if known_agent == Some(managed.kind)
-                    && (self.state == AgentState::Idle
-                        || managed.kind == Agent::Codex
-                            && self.state == AgentState::Unknown
-                            && self.codex_prompt_ready)
-                {
+                if self.managed_agent_launched(managed.kind, known_agent) {
                     self.managed_agent = Some(ManagedAgent {
                         kind: managed.kind,
                         phase: ManagedAgentPhase::Active,
@@ -2295,6 +2285,17 @@ impl TerminalState {
             }
         }
         false
+    }
+
+    // An agent started with its first prompt goes straight to working and may
+    // not reach idle before the launch deadline, so working counts as launched
+    // too; waiting for idle would drop the name in the middle of that turn.
+    fn managed_agent_launched(&self, kind: Agent, known_agent: Option<Agent>) -> bool {
+        known_agent == Some(kind)
+            && (matches!(self.state, AgentState::Idle | AgentState::Working)
+                || kind == Agent::Codex
+                    && self.state == AgentState::Unknown
+                    && self.codex_prompt_ready)
     }
 
     pub fn restore_managed_agent(&mut self, name: String, kind: Agent) {
@@ -2499,9 +2500,6 @@ mod tests {
         assert!(terminal.reconcile_managed_agent_at(now + Duration::from_millis(100), false));
         assert!(terminal.managed_agent_launch_pending());
 
-        terminal.set_detected_state(Some(Agent::Pi), AgentState::Working);
-        assert!(!terminal.reconcile_managed_agent_at(now + Duration::from_millis(101), false));
-
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Blocked);
         assert!(terminal.reconcile_managed_agent_at(now + Duration::from_millis(102), false));
         assert!(terminal.managed_agent_launch_pending());
@@ -2522,6 +2520,53 @@ mod tests {
         assert_eq!(terminal.agent_name.as_deref(), Some("reviewer"));
         assert!(terminal.reconcile_managed_agent_at(now + Duration::from_secs(2), true));
         assert_eq!(terminal.agent_name, None);
+    }
+
+    #[test]
+    fn managed_agent_launched_with_a_prompt_keeps_its_name_while_working() {
+        let now = Instant::now();
+        let mut terminal = test_terminal();
+        terminal.begin_managed_agent(
+            "reviewer".into(),
+            Agent::Claude,
+            now,
+            Duration::from_millis(100),
+            Duration::from_secs(1),
+        );
+
+        // working inside the settle delay is not yet a launch
+        terminal.set_detected_state(Some(Agent::Claude), AgentState::Working);
+        terminal.reconcile_managed_agent_at(now + Duration::from_millis(50), false);
+        assert!(terminal.managed_agent_launch_pending());
+
+        assert!(terminal.reconcile_managed_agent_at(now + Duration::from_millis(100), false));
+        assert!(!terminal.managed_agent_launch_pending());
+        assert!(terminal.managed_agent_interactive_ready());
+
+        assert!(!terminal.reconcile_managed_agent_at(now + Duration::from_secs(2), false));
+        assert_eq!(terminal.agent_name.as_deref(), Some("reviewer"));
+    }
+
+    #[test]
+    fn managed_agent_blocked_at_launch_is_launched_once_working() {
+        let now = Instant::now();
+        let mut terminal = test_terminal();
+        terminal.begin_managed_agent(
+            "reviewer".into(),
+            Agent::Claude,
+            now,
+            Duration::ZERO,
+            Duration::from_secs(1),
+        );
+
+        terminal.set_detected_state(Some(Agent::Claude), AgentState::Blocked);
+        assert!(terminal.reconcile_managed_agent_at(now, false));
+        assert!(terminal.managed_agent_launch_pending());
+
+        terminal.set_detected_state(Some(Agent::Claude), AgentState::Working);
+        assert!(terminal.reconcile_managed_agent_at(now + Duration::from_secs(2), false));
+        assert!(terminal.managed_agent_interactive_ready());
+        assert_eq!(terminal.agent_name.as_deref(), Some("reviewer"));
     }
 
     #[test]

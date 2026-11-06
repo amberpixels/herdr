@@ -131,7 +131,7 @@ fn grouped_worktrees_render_parent_branch_and_indented_child() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(text.contains("main"));
-    assert!(text.contains("└─"));
+    assert!(text.contains(" └ "));
     assert!(text.contains("feature"));
 
     let mut replacement = (**state.snapshot.as_ref().expect("snapshot")).clone();
@@ -647,6 +647,194 @@ fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
         &request.method,
         crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_2"
     ));
+}
+
+#[test]
+fn agent_sidebar_numbers_agents_next_to_their_icons_when_enabled() {
+    let mut projected = snapshot();
+    let mut second_pane = projected.panes[0].clone();
+    second_pane.pane_id = "pane_2".into();
+    second_pane.focused = false;
+    projected.panes.push(second_pane);
+    projected.agents = vec![
+        ClientShellAgent {
+            pane_id: "pane_1".into(),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            name: Some("pi one".into()),
+            display_agent: None,
+            agent: Some("pi".into()),
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: AgentStatus::Idle,
+            state_change_seq: 10,
+            state_labels: Vec::new(),
+            tokens: Vec::new(),
+            focused: true,
+        },
+        ClientShellAgent {
+            pane_id: "pane_2".into(),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            name: Some("pi two".into()),
+            display_agent: None,
+            agent: Some("pi".into()),
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: AgentStatus::Idle,
+            state_change_seq: 20,
+            state_labels: Vec::new(),
+            tokens: Vec::new(),
+            focused: false,
+        },
+    ];
+    let mut config = Config::default();
+    config.ui.sidebar.agents.rows = vec![
+        vec![
+            crate::config::AgentSidebarToken::StateIcon,
+            crate::config::AgentSidebarToken::Agent,
+        ],
+        vec![crate::config::AgentSidebarToken::StateText],
+    ];
+
+    let mut render = |numbers: bool| {
+        config.ui.agent_panel_numbers = numbers;
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+        state.set_snapshot(Box::new(projected.clone()));
+        state.set_pane_surface(surface());
+        let frame = state.compose(106, 30).expect("agent sidebar frame");
+        let rows = frame_rows(&frame);
+        state
+            .hits
+            .agents
+            .iter()
+            .map(|(rect, _)| {
+                let first = rows[rect.y as usize][..rect.width as usize].to_owned();
+                let second = rows[rect.y as usize + 1][..rect.width as usize].to_owned();
+                (first, second)
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // The 1-based position follows the state icon on the first row; the row
+    // under the icon keeps its plain three-column indent.
+    let numbered = render(true);
+    assert_eq!(numbered.len(), 2, "rows: {numbered:?}");
+    assert!(numbered[0].0.starts_with(" ○ 1 pi"), "rows: {numbered:?}");
+    assert!(numbered[1].0.starts_with(" ○ 2 pi"), "rows: {numbered:?}");
+    assert!(numbered[0].1.starts_with("   idle"), "rows: {numbered:?}");
+
+    let plain = render(false);
+    assert!(plain[0].0.starts_with(" ○ pi"), "rows: {plain:?}");
+    assert!(plain[1].0.starts_with(" ○ pi"), "rows: {plain:?}");
+    assert!(plain[0].1.starts_with("   idle"), "rows: {plain:?}");
+}
+
+fn numbered_agents_snapshot(count: usize) -> ClientShellSnapshot {
+    let mut projected = snapshot();
+    let template = projected.panes[0].clone();
+    projected.panes = (1..=count)
+        .map(|number| {
+            let mut pane = template.clone();
+            pane.pane_id = format!("pane_{number}");
+            pane.focused = number == 1;
+            pane
+        })
+        .collect();
+    projected.focused_pane_id = Some("pane_1".into());
+    projected.agents = (1..=count)
+        .map(|number| ClientShellAgent {
+            pane_id: format!("pane_{number}"),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            name: Some(format!("pi {number}")),
+            display_agent: None,
+            agent: Some("pi".into()),
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: AgentStatus::Idle,
+            state_change_seq: number as u64,
+            state_labels: Vec::new(),
+            tokens: Vec::new(),
+            focused: number == 1,
+        })
+        .collect();
+    projected
+}
+
+#[test]
+fn agent_sidebar_right_aligns_two_digit_numbers() {
+    let mut config = Config::default();
+    config.ui.agent_panel_numbers = true;
+    config.ui.sidebar.agents.rows = vec![vec![
+        crate::config::AgentSidebarToken::StateIcon,
+        crate::config::AgentSidebarToken::Agent,
+    ]];
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    state.set_snapshot(Box::new(numbered_agents_snapshot(11)));
+    state.set_pane_surface(surface());
+    let frame = state.compose(106, 60).expect("agent sidebar frame");
+    let rows = frame_rows(&frame);
+    let numbered = state
+        .hits
+        .agents
+        .iter()
+        .map(|(rect, _)| rows[rect.y as usize][..rect.width as usize].to_owned())
+        .collect::<Vec<_>>();
+
+    // With ten or more agents every number takes two cells, so names stay in one column.
+    assert_eq!(numbered.len(), 11, "rows: {numbered:?}");
+    assert!(numbered[0].starts_with(" ○  1 pi"), "rows: {numbered:?}");
+    assert!(numbered[8].starts_with(" ○  9 pi"), "rows: {numbered:?}");
+    assert!(numbered[9].starts_with(" ○ 10 pi"), "rows: {numbered:?}");
+    assert!(numbered[10].starts_with(" ○ 11 pi"), "rows: {numbered:?}");
+}
+
+#[test]
+fn two_digit_agent_binding_focuses_agents_past_nine() {
+    let focused_pane = |outcome: &ClientShellInput| match &outcome.actions[..] {
+        [ClientShellAction::Endpoint { request, .. }] => match &request.method {
+            crate::api::schema::Method::PaneFocus(target) => Some(target.pane_id.clone()),
+            _ => None,
+        },
+        _ => None,
+    };
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(numbered_agents_snapshot(12)));
+
+    // Default prefix is ctrl+b; prefix+0 waits for exactly two digits.
+    assert!(state.handle_input_bytes(b"\x020").actions.is_empty());
+    assert_eq!(
+        state.mode,
+        ClientShellMode::AgentNumber { first_digit: None }
+    );
+    assert!(state.handle_input_bytes(b"1").actions.is_empty());
+    assert_eq!(
+        state.mode,
+        ClientShellMode::AgentNumber {
+            first_digit: Some(1)
+        }
+    );
+    let eleven = state.handle_input_bytes(b"1");
+    assert_eq!(focused_pane(&eleven).as_deref(), Some("pane_11"));
+    assert_eq!(state.mode, ClientShellMode::Terminal);
+
+    let seven = state.handle_input_bytes(b"\x02007");
+    assert_eq!(focused_pane(&seven).as_deref(), Some("pane_7"));
+
+    // "00", positions past the last agent, and non-digits focus nothing.
+    for keys in [&b"\x02000"[..], b"\x02042", b"\x020x", b"\x0201\x1b"] {
+        let outcome = state.handle_input_bytes(keys);
+        assert!(
+            outcome.actions.is_empty(),
+            "keys {keys:?}: {:?}",
+            outcome.actions
+        );
+        assert_eq!(state.mode, ClientShellMode::Terminal, "keys {keys:?}");
+    }
 }
 
 #[test]
@@ -1681,4 +1869,64 @@ fn semantic_notifications_use_client_policy_and_stable_navigation_targets() {
     assert!(repaint);
     assert!(state.visible_notification.is_none());
     assert_eq!(state.pending_notifications.len(), 1);
+}
+
+#[test]
+fn projects_indicators_draw_icon_tokens_in_state_color_with_dot_fallback() {
+    let mut projected = snapshot();
+    projected.workspaces[0]
+        .tokens
+        .push(("icon".into(), "@".into()));
+    let mut second_pane = projected.panes[0].clone();
+    second_pane.pane_id = "pane_2".into();
+    second_pane.focused = false;
+    projected.panes.push(second_pane);
+    let agent = |pane_id: &str, name: &str, status, tokens| ClientShellAgent {
+        pane_id: pane_id.into(),
+        workspace_id: "ws_1".into(),
+        tab_id: "tab_1".into(),
+        name: Some(name.into()),
+        display_agent: None,
+        agent: Some("pi".into()),
+        title: None,
+        terminal_title: None,
+        terminal_title_stripped: None,
+        agent_status: status,
+        state_change_seq: 1,
+        state_labels: Vec::new(),
+        tokens,
+        focused: false,
+    };
+    projected.agents = vec![
+        agent(
+            "pane_1",
+            "iconic",
+            AgentStatus::Working,
+            vec![("icon".into(), "@".into())],
+        ),
+        agent("pane_2", "plain", AgentStatus::Idle, Vec::new()),
+    ];
+    let mut config = Config::default();
+    config.ui.status_indicators = crate::config::StatusIndicatorStyle::Projects;
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    state.set_snapshot(Box::new(projected));
+    state.set_pane_surface(surface());
+
+    let frame = state.compose(106, 30).expect("sidebar frame");
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    // Default agent rows put the state icon before the workspace name.
+    assert!(text.contains("@ client-shell"), "frame: {text}");
+    assert!(text.contains("○ client-shell"), "frame: {text}");
+    // One icon on the space row and one on the agent row.
+    let icons = frame.cells.iter().filter(|cell| cell.symbol == "@").count();
+    assert_eq!(icons, 2, "frame: {text}");
 }

@@ -14,6 +14,8 @@ pub(super) struct AgentRow {
     pub(super) pane_id: String,
     pub(super) status: crate::api::schema::AgentStatus,
     pub(super) focused: bool,
+    /// Plugin tokens, read for the row's project icon.
+    pub(super) tokens: Vec<(String, String)>,
     pub(super) rows: Vec<Vec<crate::ui::ResolvedToken>>,
 }
 
@@ -68,6 +70,7 @@ pub(super) fn render_agent_panel(
     }
 
     let rows = agent_rows(snapshot, config, None);
+    let number_width = agent_number_width(rows.len());
     render_agent_list(
         buffer,
         area,
@@ -80,9 +83,9 @@ pub(super) fn render_agent_panel(
         agent_scroll,
         hits,
         |row| row.rows.len(),
-        |buffer, rect, row, hits| {
+        |buffer, rect, position, row, hits| {
             hits.agents.push((rect, row.pane_id.clone()));
-            render_agent_row(buffer, rect, row, config);
+            render_agent_row(buffer, rect, row, Some(position), number_width, config);
         },
     );
 }
@@ -160,7 +163,7 @@ pub(super) fn render_agent_list<T>(
     agent_scroll: &mut usize,
     hits: &mut ShellHitMap,
     row_lines: impl Fn(&T) -> usize,
-    mut render_row: impl FnMut(&mut Buffer, Rect, &T, &mut ShellHitMap),
+    mut render_row: impl FnMut(&mut Buffer, Rect, usize, &T, &mut ShellHitMap),
 ) {
     let body = Rect::new(
         area.x,
@@ -217,7 +220,7 @@ pub(super) fn render_agent_list<T>(
             break;
         }
         let rect = Rect::new(body.x, y, content_width, height);
-        render_row(buffer, rect, row, hits);
+        render_row(buffer, rect, index, row, hits);
         y = y
             .saturating_add(height)
             .saturating_add(if index + 1 < rows.len() {
@@ -314,14 +317,26 @@ pub(super) fn agent_row(
         pane_id: agent.pane_id.clone(),
         status: agent.agent_status,
         focused: agent.focused,
+        tokens: agent.tokens.clone(),
         rows,
     })
 }
 
+/// Digits needed for the largest of `count` 1-based agent numbers.
+pub(super) fn agent_number_width(count: usize) -> usize {
+    count.max(1).ilog10() as usize + 1
+}
+
+/// `position` is the row's 0-based index in the `focus_agent` ordering. When
+/// `ui.agent_panel_numbers` is on, it renders 1-based right after the state icon
+/// on the first row (or leads the row when it has no icon), right-aligned to
+/// `number_width` so every row's name starts in the same column.
 pub(super) fn render_agent_row(
     buffer: &mut Buffer,
     rect: Rect,
     row: &AgentRow,
+    position: Option<usize>,
+    number_width: usize,
     config: &ClientShellConfig,
 ) {
     let palette = &config.palette;
@@ -342,7 +357,7 @@ pub(super) fn render_agent_row(
     let status_style = Style::default().fg(status_color(row.status, palette));
     let secondary = Style::default().fg(palette.overlay0);
     let icon = (
-        status_icon(row.status, config.status_indicators),
+        row_status_icon(row.status, config.status_indicators, &row.tokens),
         Style::default().fg(status_color(row.status, palette)),
     );
     let rows = if row.rows.is_empty() {
@@ -353,10 +368,23 @@ pub(super) fn render_agent_row(
     } else {
         row.rows.clone()
     };
+    let number = config
+        .agent_panel_numbers
+        .then_some(position)
+        .flatten()
+        .map(|position| position + 1);
+    let number_style = if row.focused {
+        secondary
+    } else {
+        secondary.add_modifier(Modifier::DIM)
+    };
     for (index, tokens) in rows.iter().take(rect.height as usize).enumerate() {
         let indent = if index == 0 { 1 } else { 3 };
+        // The number and its separator cost cells on the first row, so the tokens get that much less.
+        let number = number.filter(|_| index == 0);
+        let reserved = indent + usize::from(number.is_some()) * (number_width + 1);
         let mut spans = vec![ratatui::text::Span::raw(" ".repeat(indent))];
-        spans.extend(crate::ui::resolved_token_spans(
+        let mut token_spans = crate::ui::resolved_token_spans(
             tokens,
             icon,
             status_style,
@@ -364,8 +392,25 @@ pub(super) fn render_agent_row(
             secondary,
             secondary,
             palette,
-            rect.width.saturating_sub(indent as u16) as usize,
-        ));
+            rect.width.saturating_sub(reserved as u16) as usize,
+        );
+        if let Some(number) = number {
+            let icon_end = token_spans
+                .iter()
+                .position(|span| span.content.as_ref() == icon.0)
+                .map(|position| position + 1);
+            match icon_end {
+                Some(at) => token_spans.insert(
+                    at,
+                    ratatui::text::Span::styled(format!(" {number:>number_width$}"), number_style),
+                ),
+                None => token_spans.insert(
+                    0,
+                    ratatui::text::Span::styled(format!("{number:>number_width$} "), number_style),
+                ),
+            }
+        }
+        spans.extend(token_spans);
         Paragraph::new(Line::from(spans)).style(row_style).render(
             Rect::new(rect.x, rect.y + index as u16, rect.width, 1),
             buffer,

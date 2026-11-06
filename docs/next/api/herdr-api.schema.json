@@ -1098,6 +1098,17 @@
               "minimum": 0,
               "type": "integer"
             },
+            "repo": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/event/$defs/WorkspaceRepoInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The git repo the workspace's current directory is in, for every\nworkspace, not only those opened as worktrees."
+            },
             "tab_count": {
               "format": "uint",
               "minimum": 0,
@@ -1136,6 +1147,32 @@
             "tab_count",
             "active_tab_id",
             "agent_status"
+          ],
+          "type": "object"
+        },
+        "WorkspaceRepoInfo": {
+          "properties": {
+            "checkout_path": {
+              "description": "Root of the checkout the workspace is in.",
+              "type": "string"
+            },
+            "is_linked_worktree": {
+              "type": "boolean"
+            },
+            "repo_name": {
+              "description": "Name of the main repo, shared by all of its linked worktrees.",
+              "type": "string"
+            },
+            "repo_root": {
+              "description": "Root of the main repo checkout, shared by all of its linked worktrees.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo_name",
+            "repo_root",
+            "checkout_path",
+            "is_linked_worktree"
           ],
           "type": "object"
         },
@@ -10597,6 +10634,17 @@
               "minimum": 0,
               "type": "integer"
             },
+            "repo": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/WorkspaceRepoInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The git repo the workspace's current directory is in, for every\nworkspace, not only those opened as worktrees."
+            },
             "tab_count": {
               "format": "uint",
               "minimum": 0,
@@ -10635,6 +10683,32 @@
             "tab_count",
             "active_tab_id",
             "agent_status"
+          ],
+          "type": "object"
+        },
+        "WorkspaceRepoInfo": {
+          "properties": {
+            "checkout_path": {
+              "description": "Root of the checkout the workspace is in.",
+              "type": "string"
+            },
+            "is_linked_worktree": {
+              "type": "boolean"
+            },
+            "repo_name": {
+              "description": "Name of the main repo, shared by all of its linked worktrees.",
+              "type": "string"
+            },
+            "repo_root": {
+              "description": "Root of the main repo checkout, shared by all of its linked worktrees.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo_name",
+            "repo_root",
+            "checkout_path",
+            "is_linked_worktree"
           ],
           "type": "object"
         },

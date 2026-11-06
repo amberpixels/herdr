@@ -114,6 +114,9 @@ pub enum StatusIndicatorStyle {
     #[default]
     Dots,
     Symbols,
+    /// Each row's `icon` token (a project icon) colored by state, falling back to
+    /// dots for rows without one.
+    Projects,
 }
 
 impl StatusIndicatorStyle {
@@ -121,6 +124,7 @@ impl StatusIndicatorStyle {
         match self {
             Self::Dots => "dots",
             Self::Symbols => "symbols",
+            Self::Projects => "projects",
         }
     }
 }
@@ -385,6 +389,8 @@ pub struct KeysConfig {
     pub next_agent: BindingConfig,
     /// Focus an agent by index 1-9. Unset by default.
     pub focus_agent: BindingConfig,
+    /// Focus an agent by a two-digit position typed next (01-99). Default: "prefix+0".
+    pub focus_agent_two_digit: BindingConfig,
     /// Local-client shortcut that sends a clipboard image to a remote Herdr session. Default: "ctrl+v".
     pub remote_image_paste: String,
     /// Create a new tab in the active workspace. Default: "prefix+c"
@@ -522,6 +528,8 @@ pub(crate) struct KeysConfigOverlay {
     next_agent: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     focus_agent: Option<BindingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    focus_agent_two_digit: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     remote_image_paste: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -668,6 +676,7 @@ impl<'de> Deserialize<'de> for KeysConfig {
         apply_field!(previous_agent);
         apply_field!(next_agent);
         apply_field!(focus_agent);
+        apply_field!(focus_agent_two_digit);
         apply_field!(remote_image_paste);
         apply_field!(new_tab);
         apply_field!(rename_tab);
@@ -773,6 +782,7 @@ impl KeysConfig {
         copy_effective_action_field!(previous_agent, keybinds.previous_agent);
         copy_effective_action_field!(next_agent, keybinds.next_agent);
         copy_effective_indexed_field!(focus_agent, keybinds.focus_agent);
+        copy_effective_action_field!(focus_agent_two_digit, keybinds.focus_agent_two_digit);
         copy_user_field!(remote_image_paste);
         copy_effective_action_field!(new_tab, keybinds.new_tab);
         copy_effective_action_field!(rename_tab, keybinds.rename_tab);
@@ -993,10 +1003,13 @@ pub struct UiConfig {
     pub window_title: String,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
+    /// Show 1-based position numbers next to each agent's icon, matching the
+    /// `focus_agent` and `focus_agent_two_digit` shortcuts. Default: false.
+    pub agent_panel_numbers: bool,
     /// Retired setting that Herdr wrote before the workspace filter was removed.
     #[serde(rename = "agent_panel_scope")]
     _legacy_agent_panel_scope: Option<LegacyAgentPanelScopeConfig>,
-    /// Agent status indicator style. Saved values are "dots" or "symbols". Default: "dots".
+    /// Agent status indicator style. Saved values are "dots", "symbols", or "projects". Default: "dots".
     pub status_indicators: StatusIndicatorStyle,
     /// Expanded sidebar row composition.
     pub sidebar: SidebarConfig,
@@ -1145,6 +1158,7 @@ impl Default for KeysConfig {
             previous_agent: BindingConfig::empty(),
             next_agent: BindingConfig::empty(),
             focus_agent: BindingConfig::empty(),
+            focus_agent_two_digit: BindingConfig::one("prefix+0"),
             remote_image_paste: "ctrl+v".into(),
             new_tab: BindingConfig::one("prefix+c"),
             rename_tab: BindingConfig::one("prefix+shift+t"),
@@ -1224,6 +1238,7 @@ impl Default for UiConfig {
             tab_bar_right_separator: " ".into(),
             window_title: super::window_title::default_window_title(),
             agent_panel_sort: AgentPanelSortConfig::Spaces,
+            agent_panel_numbers: false,
             _legacy_agent_panel_scope: None,
             status_indicators: StatusIndicatorStyle::Dots,
             sidebar: SidebarConfig::default(),
@@ -1490,6 +1505,19 @@ status_indicators = "symbols"
         )
         .unwrap();
         assert_eq!(config.ui.status_indicators, StatusIndicatorStyle::Symbols);
+    }
+
+    #[test]
+    fn status_indicator_style_parses_projects() {
+        let config: Config = toml::from_str(
+            r#"
+[ui]
+status_indicators = "projects"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.ui.status_indicators, StatusIndicatorStyle::Projects);
+        assert_eq!(StatusIndicatorStyle::Projects.as_str(), "projects");
     }
 
     #[test]

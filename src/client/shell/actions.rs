@@ -163,6 +163,11 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
+                if action == crate::input::KeybindAction::FocusAgentTwoDigit {
+                    self.mode = ClientShellMode::AgentNumber { first_digit: None };
+                    outcome.repaint = true;
+                    return;
+                }
                 if action == crate::input::KeybindAction::CopyMode {
                     if self.enter_copy_mode(outcome) {
                         outcome.repaint = true;

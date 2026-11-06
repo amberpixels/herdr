@@ -409,7 +409,25 @@ impl App {
                     checkout_path: space.checkout_path.display().to_string(),
                     is_linked_worktree: space.is_linked_worktree,
                 }),
+            repo: ws.cached_git_space.as_ref().map(workspace_repo_info),
         }
+    }
+}
+
+fn workspace_repo_info(
+    space: &crate::workspace::GitSpaceMetadata,
+) -> crate::api::schema::WorkspaceRepoInfo {
+    // The key is the canonical git common dir; the main checkout is its parent.
+    let common_dir = std::path::Path::new(&space.key);
+    let repo_root = match common_dir.file_name().and_then(|name| name.to_str()) {
+        Some(".git" | ".bare") => common_dir.parent().unwrap_or(common_dir),
+        _ => common_dir,
+    };
+    crate::api::schema::WorkspaceRepoInfo {
+        repo_name: space.repo_name.clone(),
+        repo_root: repo_root.display().to_string(),
+        checkout_path: space.repo_root.display().to_string(),
+        is_linked_worktree: space.is_linked_worktree,
     }
 }
 

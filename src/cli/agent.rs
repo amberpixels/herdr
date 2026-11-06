@@ -435,31 +435,7 @@ fn wait_for_named_agent(
         } else if agent["name"].as_str() != Some(name) {
             Some(Err(agent_name_lost_error("cli:agent:start", name)))
         } else {
-            match agent["agent_status"].as_str() {
-                Some("blocked") => Some(Err(cli_agent_error(
-                    "cli:agent:start",
-                    "agent_not_ready",
-                    format!("agent {name} is blocked during startup and is not ready for prompts"),
-                ))),
-                Some("unknown")
-                    if expected_kind == "codex"
-                        && agent["interactive_ready"].as_bool() == Some(true) =>
-                {
-                    Some(Ok(agent.clone()))
-                }
-                Some("working" | "unknown") => None,
-                Some("idle" | "done") if agent["interactive_ready"].as_bool() == Some(true) => {
-                    Some(Ok(agent.clone()))
-                }
-                Some("idle" | "done") if !agent["launch_pending"].as_bool().unwrap_or(false) => {
-                    Some(Err(cli_agent_error(
-                        "cli:agent:start",
-                        "agent_start_failed",
-                        "agent process exited before becoming interactive",
-                    )))
-                }
-                _ => None,
-            }
+            startup_status_outcome(agent, name, expected_kind)
         };
         if let Some(outcome) = outcome {
             return Ok(outcome);
@@ -550,6 +526,36 @@ fn print_agent_transport_error(
     super::print_response(&cli_agent_error(request_id, code, err.to_string()))
 }
 
+// The server marks an agent started with its first prompt interactive-ready
+// once it is seen working, so that counts as started here too; waiting for
+// idle would time out in the middle of the agent's first turn.
+fn startup_status_outcome(
+    agent: &serde_json::Value,
+    name: &str,
+    expected_kind: &str,
+) -> Option<Result<serde_json::Value, serde_json::Value>> {
+    let ready = agent["interactive_ready"].as_bool() == Some(true);
+    match agent["agent_status"].as_str() {
+        Some("blocked") => Some(Err(cli_agent_error(
+            "cli:agent:start",
+            "agent_not_ready",
+            format!("agent {name} is blocked during startup and is not ready for prompts"),
+        ))),
+        Some("unknown") if expected_kind == "codex" && ready => Some(Ok(agent.clone())),
+        Some("working") if ready => Some(Ok(agent.clone())),
+        Some("working" | "unknown") => None,
+        Some("idle" | "done") if ready => Some(Ok(agent.clone())),
+        Some("idle" | "done") if !agent["launch_pending"].as_bool().unwrap_or(false) => {
+            Some(Err(cli_agent_error(
+                "cli:agent:start",
+                "agent_start_failed",
+                "agent process exited before becoming interactive",
+            )))
+        }
+        _ => None,
+    }
+}
+
 fn agent_wait_timeout() -> serde_json::Value {
     cli_agent_error(
         "cli:agent:start",
@@ -613,4 +619,46 @@ fn agent_read(params: AgentReadParams) -> std::io::Result<i32> {
         method: Method::AgentRead(params),
     })?;
     super::print_read_response(&response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::startup_status_outcome;
+
+    fn agent(status: &str, ready: bool, pending: bool) -> serde_json::Value {
+        serde_json::json!({
+            "agent_status": status,
+            "interactive_ready": ready,
+            "launch_pending": pending,
+        })
+    }
+
+    #[test]
+    fn working_agent_the_server_marked_ready_has_started() {
+        let outcome = startup_status_outcome(&agent("working", true, false), "a", "claude");
+        assert!(matches!(outcome, Some(Ok(_))));
+    }
+
+    #[test]
+    fn working_agent_not_yet_ready_keeps_waiting() {
+        assert!(startup_status_outcome(&agent("working", false, true), "a", "claude").is_none());
+    }
+
+    #[test]
+    fn idle_ready_agent_has_started() {
+        let outcome = startup_status_outcome(&agent("idle", true, false), "a", "claude");
+        assert!(matches!(outcome, Some(Ok(_))));
+    }
+
+    #[test]
+    fn idle_agent_that_never_became_ready_failed() {
+        let outcome = startup_status_outcome(&agent("idle", false, false), "a", "claude");
+        assert!(matches!(outcome, Some(Err(_))));
+    }
+
+    #[test]
+    fn blocked_agent_is_not_ready() {
+        let outcome = startup_status_outcome(&agent("blocked", false, true), "a", "claude");
+        assert!(matches!(outcome, Some(Err(_))));
+    }
 }

@@ -94,7 +94,9 @@ impl ClientShellState {
     pub(crate) fn host_keyboard_report_all_requested(&self) -> bool {
         matches!(
             self.mode,
-            ClientShellMode::Prefix | ClientShellMode::Navigate
+            ClientShellMode::Prefix
+                | ClientShellMode::Navigate
+                | ClientShellMode::AgentNumber { .. }
         )
     }
 
@@ -721,6 +723,10 @@ impl ClientShellState {
                 self.route_resize_key(key, outcome);
                 None
             }
+            ClientShellMode::AgentNumber { first_digit } => {
+                self.route_agent_number_key(first_digit, key, outcome);
+                None
+            }
             ClientShellMode::Copy => {
                 if self
                     .copy_mode
@@ -1066,6 +1072,42 @@ impl ClientShellState {
         };
         if let Some(action) = action {
             self.record_binding(crate::input::KeybindMatch::Action(action), outcome);
+        }
+    }
+
+    fn route_agent_number_key(
+        &mut self,
+        first_digit: Option<usize>,
+        key: &crate::input::TerminalKey,
+        outcome: &mut ClientShellInput,
+    ) {
+        outcome.repaint = true;
+        let digit = ('0'..='9').position(|digit| {
+            crate::config::terminal_key_matches_combo(
+                key,
+                (KeyCode::Char(digit), KeyModifiers::empty()),
+            )
+        });
+        // Any other key, Esc and the prefix included, cancels without reaching the pane.
+        let Some(digit) = digit else {
+            self.mode = self.copy_or_terminal_mode();
+            return;
+        };
+        let Some(tens) = first_digit else {
+            self.mode = ClientShellMode::AgentNumber {
+                first_digit: Some(digit),
+            };
+            return;
+        };
+        self.mode = self.copy_or_terminal_mode();
+        // "00" names no agent; positions are 1-based.
+        let Some(index) = (tens * 10 + digit).checked_sub(1) else {
+            return;
+        };
+        let binding =
+            crate::input::KeybindMatch::Action(crate::input::KeybindAction::FocusAgent(index));
+        if self.indexed_navigation_target_exists(&binding) {
+            self.record_binding(binding, outcome);
         }
     }
 
