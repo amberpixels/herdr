@@ -319,7 +319,11 @@ impl App {
         params: PaneLinkActivateParams,
     ) -> String {
         match self.read_checked_pane_link(&id, &params, "resolution", |runtime, col, row| {
-            runtime.link_regions_at(col, row, crate::app::actions::url_byte_range)
+            // The foreground process's cwd: an agent prints paths relative to where it runs.
+            let cwd = runtime.follow_cwd();
+            runtime.link_regions_at(col, row, |text: &str, byte| {
+                crate::app::actions::url_byte_range(text, byte, cwd.as_deref())
+            })
         }) {
             Ok((_, regions)) => encode_success(id, ResponseResult::PaneLinkResolved { regions }),
             Err(error) => error,
@@ -333,9 +337,10 @@ impl App {
     ) -> String {
         let (pane_id, url) =
             match self.read_checked_pane_link(&id, &params, "activation", |runtime, col, row| {
-                runtime
-                    .link_target_at(col, row)
-                    .and_then(crate::app::actions::url_from_link_target)
+                let cwd = runtime.follow_cwd();
+                runtime.link_target_at(col, row).and_then(|target| {
+                    crate::app::actions::url_from_link_target(target, cwd.as_deref())
+                })
             }) {
                 Ok(value) => value,
                 Err(error) => return error,

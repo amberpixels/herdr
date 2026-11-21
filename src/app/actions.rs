@@ -1041,10 +1041,15 @@ impl AppState {
     }
 }
 
-pub(super) fn url_from_link_target(target: crate::ghostty::LinkTarget) -> Option<String> {
+pub(super) fn url_from_link_target(
+    target: crate::ghostty::LinkTarget,
+    cwd: Option<&std::path::Path>,
+) -> Option<String> {
     match target {
         crate::ghostty::LinkTarget::Uri(uri) => Some(uri),
-        crate::ghostty::LinkTarget::Text { text, clicked_byte } => url_at_byte(&text, clicked_byte),
+        crate::ghostty::LinkTarget::Text { text, clicked_byte } => {
+            url_at_byte(&text, clicked_byte, cwd)
+        }
     }
 }
 
@@ -1095,16 +1100,21 @@ pub(crate) fn word_bounds_at_column(row: &str, col: u16) -> Option<(u16, u16)> {
     Some(span.columns(&cells))
 }
 
-fn url_at_byte(text: &str, clicked_byte: usize) -> Option<String> {
-    let range = url_byte_range(text, clicked_byte)?;
+fn url_at_byte(text: &str, clicked_byte: usize, cwd: Option<&std::path::Path>) -> Option<String> {
+    let range = url_byte_range(text, clicked_byte, cwd)?;
     let link = text.get(range)?;
-    if link.starts_with('/') {
-        return Some(path_file_url(link));
+    if link.contains("://") {
+        return Some(link.to_owned());
     }
-    Some(link.to_owned())
+    let path = local_path(link, cwd)?;
+    Some(path_file_url(path.to_str()?))
 }
 
-pub(super) fn url_byte_range(text: &str, clicked_byte: usize) -> Option<std::ops::Range<usize>> {
+pub(super) fn url_byte_range(
+    text: &str,
+    clicked_byte: usize,
+    cwd: Option<&std::path::Path>,
+) -> Option<std::ops::Range<usize>> {
     let clicked_idx = text.get(..clicked_byte)?.chars().count();
     let cells = text_cells(text);
     if let Some(span) = url_span_at_column(&cells, clicked_idx) {
@@ -1117,20 +1127,39 @@ pub(super) fn url_byte_range(text: &str, clicked_byte: usize) -> Option<std::ops
                 .is_some_and(|path| std::path::Path::new(path).exists());
         return linked.then_some(start..end);
     }
-    let span = local_path_span_at_column(&cells, clicked_idx)?;
+    let span = local_path_span_at_column(&cells, clicked_idx, cwd)?;
     Some(byte_index_for_cell(text, span.start)..byte_index_after_cell(text, span.end))
 }
 
 // Fork: agents relay output as plain text, so an OSC 8 file link never survives;
-// a bare absolute path stands in for it and goes to the plugin link handlers as
-// file://. Only a path that exists on disk, so stray slash-words stay unlinked.
-fn local_path_span_at_column(cells: &[TextCell], clicked_idx: usize) -> Option<CellSpan> {
+// a bare path stands in for it and goes to the plugin link handlers as file://.
+// Only a path that exists on disk, so stray slash-words stay unlinked.
+fn local_path_span_at_column(
+    cells: &[TextCell],
+    clicked_idx: usize,
+    cwd: Option<&std::path::Path>,
+) -> Option<CellSpan> {
     let span = token_span_at_column(cells, clicked_idx)?;
     let token: String = cells[span.start..=span.end]
         .iter()
         .map(|cell| cell.ch)
         .collect();
-    (token.starts_with('/') && std::path::Path::new(&token).exists()).then_some(span)
+    local_path(&token, cwd).map(|_| span)
+}
+
+// A relative path needs a '/' so a bare word that happens to name a file in the
+// pane's cwd (src, README.md) is not underlined everywhere it appears.
+fn local_path(token: &str, cwd: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+    let path = if token.starts_with('/') {
+        std::path::PathBuf::from(token)
+    } else if let Some(rest) = token.strip_prefix("~/") {
+        std::path::PathBuf::from(std::env::var_os("HOME")?).join(rest)
+    } else if token.contains('/') && !token.contains("://") {
+        cwd.filter(|cwd| cwd.is_absolute())?.join(token)
+    } else {
+        return None;
+    };
+    path.exists().then_some(path)
 }
 
 fn path_file_url(path: &str) -> String {
@@ -2216,8 +2245,12 @@ mod tests {
         Some(text_in_cell_range(row, start, end))
     }
 
+    fn no_cwd_range(text: &str, clicked_byte: usize) -> Option<std::ops::Range<usize>> {
+        url_byte_range(text, clicked_byte, None)
+    }
+
     fn selected_url(row: &str, click: &str) -> Option<String> {
-        url_at_byte(row, row.find(click)?)
+        url_at_byte(row, row.find(click)?, None)
     }
 
     fn text_in_cell_range(row: &str, start_col: u16, end_col: u16) -> String {
@@ -2412,9 +2445,7 @@ mod tests {
     fn link_resolution_regions_unicode_punctuation_and_explicit_links() {
         let mut terminal = crate::ghostty::Terminal::new(80, 4, 1024).unwrap();
         terminal.write("[文档](https://example.com/路径?q=a(b)), next".as_bytes());
-        let regions = terminal
-            .viewport_link_regions(7, 0, url_byte_range)
-            .unwrap();
+        let regions = terminal.viewport_link_regions(7, 0, no_cwd_range).unwrap();
         assert_eq!(
             regions
                 .iter()
@@ -2423,13 +2454,13 @@ mod tests {
             vec![(0, 7, 37)]
         );
         assert!(terminal
-            .viewport_link_regions(1, 0, url_byte_range)
+            .viewport_link_regions(1, 0, no_cwd_range)
             .unwrap()
             .is_empty());
         terminal.resize(20, 4, 0, 0).unwrap();
         assert_eq!(
             terminal
-                .viewport_link_regions(9, 1, url_byte_range)
+                .viewport_link_regions(9, 1, no_cwd_range)
                 .unwrap()
                 .iter()
                 .map(|r| (r.row, r.start_col, r.end_col))
@@ -2444,14 +2475,14 @@ mod tests {
             let mut terminal = crate::ghostty::Terminal::new(80, 4, 1024).unwrap();
             terminal.write(text.as_bytes());
             assert!(terminal
-                .viewport_link_regions(0, 0, url_byte_range)
+                .viewport_link_regions(0, 0, no_cwd_range)
                 .unwrap()
                 .is_empty());
         }
         let mut terminal = crate::ghostty::Terminal::new(80, 4, 1024 * 1024).unwrap();
         terminal.write(format!("https://example.com/{}", "a".repeat(9000)).as_bytes());
         assert!(terminal
-            .viewport_link_regions(0, 0, url_byte_range)
+            .viewport_link_regions(0, 0, no_cwd_range)
             .unwrap()
             .is_empty());
     }
@@ -2468,24 +2499,22 @@ mod tests {
         for col in 2..=24 {
             assert_eq!(
                 terminal
-                    .viewport_link_regions(col, 0, url_byte_range)
+                    .viewport_link_regions(col, 0, no_cwd_range)
                     .unwrap(),
                 expected,
                 "column {col}"
             );
         }
         assert!(terminal
-            .viewport_link_regions(0, 0, url_byte_range)
+            .viewport_link_regions(0, 0, no_cwd_range)
             .unwrap()
             .is_empty());
         assert!(terminal
-            .viewport_link_regions(25, 0, url_byte_range)
+            .viewport_link_regions(25, 0, no_cwd_range)
             .unwrap()
             .is_empty());
         terminal.resize(21, 1, 0, 0).unwrap();
-        let regions = terminal
-            .viewport_link_regions(1, 0, url_byte_range)
-            .unwrap();
+        let regions = terminal.viewport_link_regions(1, 0, no_cwd_range).unwrap();
         assert_eq!(
             regions,
             vec![crate::ghostty::LinkRegion {
@@ -2500,9 +2529,7 @@ mod tests {
     fn link_resolution_regions_clip_wraps_and_wide_padding() {
         let mut terminal = crate::ghostty::Terminal::new(21, 3, 1024).unwrap();
         terminal.write("https://example.com/路径".as_bytes());
-        let regions = terminal
-            .viewport_link_regions(1, 1, url_byte_range)
-            .unwrap();
+        let regions = terminal.viewport_link_regions(1, 1, no_cwd_range).unwrap();
         assert_eq!(
             regions
                 .iter()
@@ -2511,14 +2538,14 @@ mod tests {
             vec![(0, 0, 19), (1, 0, 3)]
         );
         assert!(terminal
-            .viewport_link_regions(19, 2, url_byte_range)
+            .viewport_link_regions(19, 2, no_cwd_range)
             .unwrap()
             .is_empty());
         let mut terminal = crate::ghostty::Terminal::new(20, 2, 1024).unwrap();
         terminal.write(b"https://example.com/abcdefghijklmnopqrstuv");
         assert_eq!(
             terminal
-                .viewport_link_regions(0, 0, url_byte_range)
+                .viewport_link_regions(0, 0, no_cwd_range)
                 .unwrap()
                 .iter()
                 .map(|r| (r.row, r.start_col, r.end_col))
@@ -2528,7 +2555,7 @@ mod tests {
         terminal.scroll_viewport_row(0);
         assert_eq!(
             terminal
-                .viewport_link_regions(0, 0, url_byte_range)
+                .viewport_link_regions(0, 0, no_cwd_range)
                 .unwrap()
                 .iter()
                 .map(|r| (r.row, r.start_col, r.end_col))
@@ -2536,7 +2563,7 @@ mod tests {
             vec![(0, 0, 19), (1, 0, 19)]
         );
         assert!(terminal
-            .viewport_link_regions(0, 2, url_byte_range)
+            .viewport_link_regions(0, 2, no_cwd_range)
             .unwrap()
             .is_empty());
     }
@@ -2547,10 +2574,10 @@ mod tests {
         let mut terminal = crate::ghostty::Terminal::new(20, 2, 1024 * 1024).unwrap();
         terminal.write(url.as_bytes());
         let target = terminal.viewport_link_target(0, 0).unwrap().unwrap();
-        assert_eq!(url_from_link_target(target).as_deref(), Some(url));
+        assert_eq!(url_from_link_target(target, None).as_deref(), Some(url));
         terminal.scroll_viewport_row(0);
         let target = terminal.viewport_link_target(5, 1).unwrap().unwrap();
-        assert_eq!(url_from_link_target(target).as_deref(), Some(url));
+        assert_eq!(url_from_link_target(target, None).as_deref(), Some(url));
     }
 
     #[test]
@@ -2558,15 +2585,18 @@ mod tests {
         let mut terminal = crate::ghostty::Terminal::new(80, 5, 1024 * 1024).unwrap();
         terminal.write("[文档](https://example.com/路径?q=a(b)), next".as_bytes());
         assert!(
-            url_from_link_target(terminal.viewport_link_target(1, 0).unwrap().unwrap()).is_none()
+            url_from_link_target(terminal.viewport_link_target(1, 0).unwrap().unwrap(), None)
+                .is_none()
         );
         assert_eq!(
-            url_from_link_target(terminal.viewport_link_target(7, 0).unwrap().unwrap()).as_deref(),
+            url_from_link_target(terminal.viewport_link_target(7, 0).unwrap().unwrap(), None)
+                .as_deref(),
             Some("https://example.com/路径?q=a(b)")
         );
         terminal.resize(20, 5, 0, 0).unwrap();
         assert_eq!(
-            url_from_link_target(terminal.viewport_link_target(9, 1).unwrap().unwrap()).as_deref(),
+            url_from_link_target(terminal.viewport_link_target(9, 1).unwrap().unwrap(), None)
+                .as_deref(),
             Some("https://example.com/路径?q=a(b)")
         );
         assert!(terminal.viewport_link_target(19, 4).unwrap().is_none());
@@ -2579,7 +2609,7 @@ mod tests {
         terminal.write(url.as_bytes());
         for col in 0..4 {
             let target = terminal.viewport_link_target(col, 1).unwrap().unwrap();
-            assert_eq!(url_from_link_target(target).as_deref(), Some(url));
+            assert_eq!(url_from_link_target(target, None).as_deref(), Some(url));
         }
     }
 
@@ -2638,6 +2668,32 @@ mod tests {
         assert_eq!(selected_url("plan: repo/FT-1.md", "repo"), None);
         let row = format!("plan: {root}/FT-1.md");
         assert_eq!(selected_url(&row, "plan"), None);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn url_at_byte_resolves_relative_paths_against_the_pane_cwd() {
+        let dir = std::env::temp_dir().join(format!("herdr-rel-links-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".f10/audits")).unwrap();
+        std::fs::write(dir.join(".f10/audits/a.md"), "x").unwrap();
+        std::fs::write(dir.join("README.md"), "x").unwrap();
+        let root = dir.to_str().unwrap();
+        let at = |row: &str, click: &str, cwd: Option<&std::path::Path>| {
+            url_at_byte(row, row.find(click)?, cwd)
+        };
+
+        let want = Some(format!("file://{root}/.f10/audits/a.md"));
+        assert_eq!(at("Write(.f10/audits/a.md)", "audits", Some(&dir)), want);
+        assert_eq!(
+            at("Wrote 3 lines to .f10/audits/a.md", "a.md", Some(&dir)),
+            want
+        );
+        assert!(at("see ./.f10/audits/a.md.", "audits", Some(&dir)).is_some());
+        assert_eq!(at("Write(.f10/audits/a.md)", "audits", None), None);
+        assert_eq!(at("Write(.f10/audits/b.md)", "audits", Some(&dir)), None);
+        // A bare name without a '/' stays unlinked even when it exists.
+        assert_eq!(at("see README.md", "README", Some(&dir)), None);
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
