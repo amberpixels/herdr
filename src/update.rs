@@ -2181,6 +2181,13 @@ fn preserve_preview_channel_for_install(
 
 /// Manual self-update command (`herdr update`).
 pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
+    if crate::build_info::is_fork() {
+        return Err(format!(
+            "self-update is disabled for fork builds ({}); rebuild with `just install-fork`",
+            crate::build_info::version()
+        ));
+    }
+
     let channel = UpdateChannel::configured();
 
     if is_homebrew_managed_install() {
@@ -2444,6 +2451,11 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
                 install_command: update_install_command().to_string(),
             });
         }
+        return;
+    }
+
+    if crate::build_info::is_fork() {
+        tracing::info!("skipping update check for fork build");
         return;
     }
 

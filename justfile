@@ -88,6 +88,31 @@ build:
 build:
     python scripts/package_windows_conpty.py build-local
 
+# Version reads `<upstream>-fork.<id>`, id = latest amber-YYYY-MM-DD tag (prefix dropped)
+# plus `git describe` distance, or the short commit if untagged.
+# Build the amberpixels fork and install it as ~/.local/bin/herdr
+[unix]
+install-fork:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    id=$(git describe --tags --match 'amber-*' --dirty 2>/dev/null || git describe --always --dirty --exclude='*')
+    export HERDR_BUILD_CHANNEL=fork HERDR_BUILD_ID="${id#amber-}"
+    export ZIG="${ZIG:-$HOME/.local/share/zig-0.16.0/zig}"
+    cargo build --release --locked
+    # Rename into place: rewriting the running server's binary in place gets it killed on macOS.
+    install -m 755 "${CARGO_TARGET_DIR:-target}/release/herdr" "$HOME/.local/bin/.herdr.new"
+    mv -f "$HOME/.local/bin/.herdr.new" "$HOME/.local/bin/herdr"
+    "$HOME/.local/bin/herdr" --version
+
+# Tag HEAD as today's fork release (amber-YYYY-MM-DD); local only, push it yourself.
+[unix]
+tag-fork:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tag="amber-$(date +%F)"
+    git tag -a "$tag" -m "fork build $tag"
+    echo "tagged $tag at $(git rev-parse --short HEAD)"
+
 # Non-gating full-render scaling profile for background workspaces and active panes
 bench-render-scale:
     cargo test --release --locked --bin herdr render_scale_profile -- --ignored --nocapture --test-threads=1

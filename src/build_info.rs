@@ -24,6 +24,12 @@ pub fn is_preview() -> bool {
     channel() == "preview"
 }
 
+/// Local fork builds (`just install-fork`) must never self-update: the hosted
+/// manifests describe upstream releases, which would replace the fork binary.
+pub fn is_fork() -> bool {
+    channel() == "fork"
+}
+
 fn non_empty(value: Option<&'static str>) -> Option<&'static str> {
     value.and_then(|value| {
         let trimmed = value.trim();
